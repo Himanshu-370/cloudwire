@@ -61,7 +61,7 @@ export default function CloudWirePage() {
   const [scanMode, setScanMode] = useState("quick");
   const [query, setQuery] = useState("");
   const [hiddenServices, setHiddenServices] = useState([]);
-  const [layoutMode, setLayoutMode] = useState("circular");
+  const [layoutMode, setLayoutMode] = useState("flow");
   const [layoutLoading, setLayoutLoading] = useState(false);
   const [forceRefresh, setForceRefresh] = useState(false);
   // FIX #24: separate resource-fetch errors from scan errors so they don't overwrite each other

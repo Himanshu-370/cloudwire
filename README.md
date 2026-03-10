@@ -152,5 +152,6 @@ This starts the FastAPI backend on `:8000` (with `--reload`) and the Vite dev se
 
 ## Links
 
+- [Full feature list](docs/FEATURES.md)
 - [Usage & setup guide](docs/USAGE.md)
 - [Release guide for maintainers](docs/RELEASING.md)

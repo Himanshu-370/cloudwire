@@ -24,6 +24,27 @@ def _port_is_available(host: str, port: int) -> bool:
             return False
 
 
+def _check_for_update(current: str, result: list) -> None:
+    """Fetch the latest version from PyPI and store it in result[0]. Runs in a background thread."""
+    try:
+        import json
+        import urllib.request
+        with urllib.request.urlopen(
+            "https://pypi.org/pypi/cloudwire/json", timeout=3
+        ) as resp:
+            data = json.loads(resp.read())
+            result.append(data["info"]["version"])
+    except Exception:
+        pass
+
+
+def _print_update_hint(current: str, result: list) -> None:
+    """Print an update hint if a newer version is available."""
+    if result and result[0] != current:
+        click.echo(f"  update available  {current}  →  {result[0]}")
+        click.echo(f"  run: pip install --upgrade cloudwire\n")
+
+
 @click.command()
 @click.option("--port", default=8080, show_default=True, help="Local port to listen on.")
 @click.option("--host", default="127.0.0.1", show_default=True, help="Bind address. Never expose 0.0.0.0 on untrusted networks.")
@@ -67,8 +88,17 @@ def main(port: int, host: str, profile: str | None, region: str, no_browser: boo
             f"Port {port} is already in use. Try a different port with --port <number>."
         )
 
+    # Start background version check — finishes before uvicorn prints its own output
+    _update_result: list = []
+    _update_thread = threading.Thread(
+        target=_check_for_update, args=(__version__, _update_result), daemon=True
+    )
+    _update_thread.start()
+    _update_thread.join(timeout=3)  # wait at most 3s so startup never hangs
+
     click.echo("")
     click.echo(f"  cloudwire {__version__}")
+    _print_update_hint(__version__, _update_result)
     click.echo(f"  Running at  →  {url}")
     click.echo("  Press Ctrl+C to stop.\n")
 

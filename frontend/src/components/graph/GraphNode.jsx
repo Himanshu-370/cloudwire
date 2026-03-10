@@ -1,4 +1,4 @@
-import React, { useContext, useState } from "react";
+import React, { useContext, useMemo, useState } from "react";
 import { createServiceIcon, getServiceVisual } from "../../lib/serviceVisuals.jsx";
 import { ViewportScaleContext } from "./GraphCanvas";
 
@@ -30,6 +30,69 @@ const ROLE_META = {
   unknown:   { color: "#6f8596", label: "?",        width: 14 },
 };
 
+// Build resource-specific tooltip rows from the node's actual attributes.
+function getTooltipRows(node) {
+  const rows = [];
+  const svc = String(node.service || "").toLowerCase();
+
+  if (node.region) rows.push({ key: "region", val: node.region });
+
+  const state = node.state || node.status;
+  if (state) rows.push({ key: "state", val: state });
+
+  if (svc === "lambda") {
+    if (node.runtime)     rows.push({ key: "runtime",  val: node.runtime });
+    if (node.memory_size) rows.push({ key: "memory",   val: `${node.memory_size} MB` });
+    if (node.timeout)     rows.push({ key: "timeout",  val: `${node.timeout}s` });
+    if (node.handler)     rows.push({ key: "handler",  val: node.handler });
+  } else if (svc === "ec2") {
+    if (node.instance_type) rows.push({ key: "type",   val: node.instance_type });
+    if (node.vpc_id)        rows.push({ key: "vpc",    val: node.vpc_id });
+  } else if (svc === "rds") {
+    if (node.engine)         rows.push({ key: "engine",   val: node.engine });
+    if (node.instance_class) rows.push({ key: "class",    val: node.instance_class });
+    if (node.multi_az != null) rows.push({ key: "multi-az", val: node.multi_az ? "yes" : "no" });
+  } else if (svc === "dynamodb") {
+    if (node.billing_mode)    rows.push({ key: "billing", val: node.billing_mode });
+    if (node.item_count != null) rows.push({ key: "items", val: String(node.item_count) });
+  } else if (svc === "sqs") {
+    if (node.visibility_timeout) rows.push({ key: "visibility", val: `${node.visibility_timeout}s` });
+  } else if (svc === "eventbridge") {
+    if (node.schedule_expression) rows.push({ key: "schedule", val: node.schedule_expression });
+    if (node.event_pattern)       rows.push({ key: "pattern",  val: "custom" });
+  } else if (svc === "elasticache") {
+    const ev = [node.engine, node.engine_version].filter(Boolean).join(" ");
+    if (ev)           rows.push({ key: "engine",    val: ev });
+    if (node.node_type) rows.push({ key: "node type", val: node.node_type });
+  } else if (svc === "cloudfront") {
+    if (node.domain) rows.push({ key: "domain", val: node.domain });
+  } else if (svc === "stepfunctions") {
+    if (node.sm_type)       rows.push({ key: "type",    val: node.sm_type });
+    if (node.creation_date) rows.push({ key: "created", val: String(node.creation_date).slice(0, 10) });
+  } else if (svc === "iam") {
+    if (node.created) rows.push({ key: "created", val: String(node.created).slice(0, 10) });
+  } else if (svc === "s3") {
+    if (node.creation_date) rows.push({ key: "created", val: String(node.creation_date).slice(0, 10) });
+  } else if (svc === "apigateway") {
+    if (node.protocol) rows.push({ key: "protocol", val: node.protocol });
+  } else if (svc === "kinesis") {
+    if (node.shard_count != null) rows.push({ key: "shards", val: String(node.shard_count) });
+  }
+
+  // ARN — always last, truncated
+  const arn = node.arn;
+  if (arn && typeof arn === "string" && arn.startsWith("arn:")) {
+    rows.push({ key: "arn", val: arn.split(":").slice(-1)[0] || arn });
+  }
+
+  return rows;
+}
+
+const TOOLTIP_W = 224;
+const ROW_H = 15;
+const HEADER_H = 22;
+const V_PAD = 8;
+
 export function GraphNode({ node, selected, highlighted, hovered, role, blastHighlight }) {
   const scale = useContext(ViewportScaleContext);
   const [tooltipVisible, setTooltipVisible] = useState(false);
@@ -43,8 +106,10 @@ export function GraphNode({ node, selected, highlighted, hovered, role, blastHig
   const innerRadius = outerRadius * 0.46;
   const isCluster = String(node.type || "").toLowerCase() === "cluster";
 
-  // Blast radius overrides opacity
   const effectiveHighlighted = blastHighlight ? true : highlighted;
+
+  const tooltipRows = useMemo(() => getTooltipRows(node), [node]);
+  const tooltipH = HEADER_H + V_PAD + tooltipRows.length * ROW_H + V_PAD;
 
   // Tiny dot LOD at very low zoom
   if (scale < 0.28 && !selected) {
@@ -72,14 +137,12 @@ export function GraphNode({ node, selected, highlighted, hovered, role, blastHig
   const icon = createServiceIcon(node.service, visual.color);
   const showLabels = scale >= 0.45 || selected;
   const showRoleBadge = scale >= 0.55 && !isCluster && role && role !== "unknown";
-
   const roleMeta = ROLE_META[role] || ROLE_META.unknown;
 
-  // Blast radius ring color
   let blastRingColor = null;
-  if (blastHighlight === "upstream") blastRingColor = "#ff9900";
+  if (blastHighlight === "upstream")   blastRingColor = "#ff9900";
   if (blastHighlight === "downstream") blastRingColor = "#00e7ff";
-  if (blastHighlight === "center") blastRingColor = "#ffffff";
+  if (blastHighlight === "center")     blastRingColor = "#ffffff";
 
   return (
     <g
@@ -165,13 +228,49 @@ export function GraphNode({ node, selected, highlighted, hovered, role, blastHig
         </g>
       )}
 
-      {/* Educational tooltip */}
-      {tooltipVisible && showLabels && visual.description && (
-        <g transform={`translate(${centerX}, ${-28})`}>
-          <rect x={-90} y={-22} width="180" height="20" rx="3" fill="#07111a" stroke="#1a2a38" strokeWidth="0.8" />
-          <text x="0" y="-8" textAnchor="middle" fontSize="9" fill="#8aacbe" letterSpacing="0.02em">
-            {visual.description.length > 42 ? visual.description.slice(0, 42) + "…" : visual.description}
+      {/* Resource-specific tooltip — only shown on hover for non-cluster nodes */}
+      {tooltipVisible && showLabels && !isCluster && (
+        <g transform={`translate(${centerX - TOOLTIP_W / 2}, ${-tooltipH - 10})`}>
+          {/* Drop shadow */}
+          <rect x="2" y="2" width={TOOLTIP_W} height={tooltipH} rx="5" fill="#000000" opacity="0.35" />
+          {/* Background */}
+          <rect x="0" y="0" width={TOOLTIP_W} height={tooltipH} rx="5" fill="#060e16" stroke={`${visual.color}50`} strokeWidth="0.8" />
+          {/* Header band */}
+          <rect x="0" y="0" width={TOOLTIP_W} height={HEADER_H} rx="5" fill={`${visual.color}20`} />
+          <rect x="0" y={HEADER_H - 4} width={TOOLTIP_W} height="4" fill={`${visual.color}20`} />
+          {/* Service type pill */}
+          <rect x="8" y="5" width={visual.label.length * 5.5 + 8} height="12" rx="2" fill={`${visual.color}30`} />
+          <text x="12" y="14.5" fontSize="8" fontWeight="700" fill={visual.color} letterSpacing="0.08em">
+            {visual.label.toUpperCase()}
           </text>
+          {/* Resource name */}
+          <text
+            x={TOOLTIP_W - 10}
+            y="14.5"
+            textAnchor="end"
+            fontSize="9"
+            fontWeight="600"
+            fill="#ddeeff"
+          >
+            {compactText(node.label || node.id, 22)}
+          </text>
+          {/* Divider */}
+          <line x1="8" y1={HEADER_H + 0.5} x2={TOOLTIP_W - 8} y2={HEADER_H + 0.5} stroke={`${visual.color}25`} strokeWidth="0.6" />
+          {/* Attribute rows */}
+          {tooltipRows.map(({ key, val }, i) => (
+            <g key={key} transform={`translate(0, ${HEADER_H + V_PAD + i * ROW_H})`}>
+              <text x="12" y="9" fontSize="9" fill="#4a7080" letterSpacing="0.03em">{key}</text>
+              <text x={TOOLTIP_W - 12} y="9" textAnchor="end" fontSize="9" fill="#a8c8d8">
+                {compactText(String(val), 22)}
+              </text>
+            </g>
+          ))}
+          {/* Empty state — no extra attributes available */}
+          {tooltipRows.length === 0 && (
+            <text x={TOOLTIP_W / 2} y={HEADER_H + V_PAD + 9} textAnchor="middle" fontSize="9" fill="#304050">
+              no attributes available
+            </text>
+          )}
         </g>
       )}
     </g>

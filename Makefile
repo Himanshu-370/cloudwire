@@ -1,4 +1,4 @@
-.PHONY: frontend package build clean install-dev dev help
+.PHONY: frontend package build clean install-dev dev release help
 
 PYTHON ?= python3.11
 NPM    ?= npm
@@ -21,8 +21,24 @@ clean: ## Remove build artifacts
 install-dev: ## Install the package in editable mode (requires `make frontend` first)
 	pip install -e ".[dev]" 2>/dev/null || pip install -e .
 
-dev: ## Run frontend dev server and backend API concurrently (requires tmux or parallel)
+dev: ## Run frontend dev server and backend API concurrently
 	@echo "Starting backend on :8000 and frontend on :5173 ..."
 	@$(PYTHON) -m uvicorn cloudwire.app.main:app --reload --port 8000 & \
 	cd frontend && $(NPM) run dev; \
 	kill %1 2>/dev/null; true
+
+release: ## Bump version, build, and publish to PyPI  →  usage: make release V=0.1.1
+	@if [ -z "$(V)" ]; then \
+		echo "ERROR: specify a version — e.g.  make release V=0.1.1"; exit 1; \
+	fi
+	@echo "Bumping version to $(V) ..."
+	@sed -i '' 's/__version__ = ".*"/__version__ = "$(V)"/' cloudwire/__init__.py
+	@sed -i '' 's/^version = ".*"/version = "$(V)"/' pyproject.toml
+	@echo "Cleaning previous build ..."
+	@$(MAKE) clean
+	@echo "Building ..."
+	@$(MAKE) build
+	@echo "Uploading to PyPI ..."
+	@twine upload dist/*
+	@echo ""
+	@echo "Released cloudwire $(V)"
