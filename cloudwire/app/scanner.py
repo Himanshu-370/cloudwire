@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import logging
 from concurrent.futures import FIRST_COMPLETED, Future, ThreadPoolExecutor, wait
 from dataclasses import dataclass
@@ -77,6 +78,8 @@ class AWSGraphScanner:
             "elasticache":   self._scan_elasticache,
             "glue":          self._scan_glue,
             "appsync":       self._scan_appsync,
+            "route53":       self._scan_route53,
+            "redshift":      self._scan_redshift,
         }
         self._iam_role_cache: Dict[str, List[Dict[str, Any]]] = {}
         self._iam_cache_lock = Lock()
@@ -681,7 +684,7 @@ class AWSGraphScanner:
         self._increment_api_call("sqs", "get_queue_attributes")
         return client.get_queue_attributes(
             QueueUrl=queue_url,
-            AttributeNames=["QueueArn", "VisibilityTimeout", "CreatedTimestamp"],
+            AttributeNames=["QueueArn", "VisibilityTimeout", "CreatedTimestamp", "RedrivePolicy"],
         ).get("Attributes", {})
 
     def _apply_sqs_queue_attributes(self, future: Future[Any], queue_url: str) -> None:
@@ -700,6 +703,21 @@ class AWSGraphScanner:
             visibility_timeout=attrs.get("VisibilityTimeout"),
             created_timestamp=attrs.get("CreatedTimestamp"),
         )
+        # SQS → SQS dead-letter queue edge
+        redrive_raw = attrs.get("RedrivePolicy")
+        if redrive_raw:
+            try:
+                redrive = json.loads(redrive_raw)
+                dlq_arn = redrive.get("deadLetterTargetArn", "")
+                if dlq_arn.startswith("arn:aws:"):
+                    dlq_name = dlq_arn.split(":")[-1]
+                    dlq_node = self._add_arn_node(dlq_arn, label=dlq_name, node_type="queue")
+                    self._node(dlq_node, service="sqs")
+                    self.store.add_edge(
+                        node_id, dlq_node, relationship="dead_letter_to", via="sqs_redrive_policy"
+                    )
+            except Exception:
+                pass
 
     def _scan_eventbridge(self, session: boto3.session.Session) -> None:
         client = self._client(session, "events")
@@ -878,6 +896,8 @@ class AWSGraphScanner:
         client = self._client(session, "s3")
         self._increment_api_call("s3", "list_buckets")
         response = client.list_buckets()
+        bucket_nodes: Dict[str, str] = {}  # bucket_name -> node_id
+
         for bucket in response.get("Buckets", []):
             self._ensure_not_cancelled()
             name = bucket.get("Name", "")
@@ -891,11 +911,64 @@ class AWSGraphScanner:
                 arn=arn,
                 creation_date=str(bucket.get("CreationDate", "")),
             )
+            bucket_nodes[name] = node_id
+
+        # S3 → Lambda / SQS / SNS (bucket event notifications)
+        if bucket_nodes:
+            workers = max(1, min(16, len(bucket_nodes)))
+            with ThreadPoolExecutor(max_workers=workers) as pool:
+                futures = {
+                    pool.submit(self._fetch_s3_notifications, client, name): node_id
+                    for name, node_id in bucket_nodes.items()
+                }
+                self._drain_futures(futures, self._apply_s3_notifications)
+
+    def _fetch_s3_notifications(self, client: Any, bucket_name: str) -> Dict[str, Any]:
+        try:
+            self._increment_api_call("s3", "get_bucket_notification_configuration")
+            return client.get_bucket_notification_configuration(Bucket=bucket_name)
+        except (ClientError, BotoCoreError) as exc:
+            logger.debug("S3 notification fetch failed for %s: %s", bucket_name, exc)
+            return {}
+
+    def _apply_s3_notifications(self, future: Future[Any], bucket_node: str) -> None:
+        try:
+            config = future.result()
+        except Exception:
+            return
+        self._ensure_not_cancelled()
+        # Lambda notifications
+        for notif in config.get("LambdaFunctionConfigurations", []):
+            target_arn = notif.get("LambdaFunctionArn", "")
+            if target_arn.startswith("arn:aws:"):
+                target_node = self._add_arn_node(target_arn)
+                self.store.add_edge(
+                    bucket_node, target_node, relationship="triggers", via="s3_notification"
+                )
+        # SQS notifications
+        for notif in config.get("QueueConfigurations", []):
+            target_arn = notif.get("QueueArn", "")
+            if target_arn.startswith("arn:aws:"):
+                target_node = self._add_arn_node(target_arn)
+                self.store.add_edge(
+                    bucket_node, target_node, relationship="triggers", via="s3_notification"
+                )
+        # SNS notifications
+        for notif in config.get("TopicConfigurations", []):
+            target_arn = notif.get("TopicArn", "")
+            if target_arn.startswith("arn:aws:"):
+                target_node = self._add_arn_node(target_arn)
+                self.store.add_edge(
+                    bucket_node, target_node, relationship="triggers", via="s3_notification"
+                )
 
     # ── RDS ──────────────────────────────────────────────────────────────────
 
     def _scan_rds(self, session: boto3.session.Session) -> None:
         client = self._client(session, "rds")
+        cluster_nodes: Dict[str, str] = {}  # DBClusterIdentifier -> node_id
+        instance_cluster_map: List[tuple[str, str]] = []  # (instance_node_id, cluster_identifier)
+
         # Instances
         paginator = client.get_paginator("describe_db_instances")
         for page in paginator.paginate():
@@ -913,6 +986,10 @@ class AWSGraphScanner:
                     state=db.get("DBInstanceStatus"),
                     multi_az=db.get("MultiAZ"),
                 )
+                cluster_id = db.get("DBClusterIdentifier")
+                if cluster_id:
+                    instance_cluster_map.append((node_id, cluster_id))
+
         # Aurora clusters
         try:
             cluster_paginator = client.get_paginator("describe_db_clusters")
@@ -922,20 +999,32 @@ class AWSGraphScanner:
                 for cluster in page.get("DBClusters", []):
                     self._ensure_not_cancelled()
                     arn = cluster.get("DBClusterArn", "")
-                    node_id = self._add_arn_node(arn, label=cluster.get("DBClusterIdentifier"), node_type="cluster")
+                    cluster_id = cluster.get("DBClusterIdentifier", "")
+                    node_id = self._add_arn_node(arn, label=cluster_id, node_type="cluster")
                     self._node(
                         node_id,
                         service="rds",
                         engine=cluster.get("Engine"),
                         state=cluster.get("Status"),
                     )
+                    cluster_nodes[cluster_id] = node_id
         except (ClientError, BotoCoreError) as exc:
             logger.debug("RDS cluster scan skipped: %s", exc)
+
+        # RDS cluster → instance edges
+        for instance_node, cluster_id in instance_cluster_map:
+            cluster_node = cluster_nodes.get(cluster_id)
+            if cluster_node:
+                self.store.add_edge(
+                    cluster_node, instance_node, relationship="contains", via="rds_cluster_member"
+                )
 
     # ── Step Functions ───────────────────────────────────────────────────────
 
     def _scan_stepfunctions(self, session: boto3.session.Session) -> None:
         client = self._client(session, "stepfunctions")
+        sm_arns: List[tuple[str, str]] = []  # (arn, node_id)
+
         paginator = client.get_paginator("list_state_machines")
         for page in paginator.paginate():
             self._ensure_not_cancelled()
@@ -950,11 +1039,134 @@ class AWSGraphScanner:
                     sm_type=sm.get("type"),
                     creation_date=str(sm.get("creationDate", "")),
                 )
+                sm_arns.append((arn, node_id))
+
+        # Step Functions → Lambda / ECS / DynamoDB / SQS / SNS (ASL task resources)
+        if sm_arns:
+            workers = max(1, min(8, len(sm_arns)))
+            with ThreadPoolExecutor(max_workers=workers) as pool:
+                futures = {
+                    pool.submit(self._fetch_sfn_definition, client, arn): node_id
+                    for arn, node_id in sm_arns
+                }
+                self._drain_futures(futures, self._apply_sfn_edges)
+
+    def _fetch_sfn_definition(self, client: Any, arn: str) -> Optional[str]:
+        try:
+            self._increment_api_call("stepfunctions", "describe_state_machine")
+            return client.describe_state_machine(stateMachineArn=arn).get("definition")
+        except (ClientError, BotoCoreError) as exc:
+            logger.debug("Step Functions describe failed for %s: %s", arn, exc)
+            return None
+
+    def _apply_sfn_edges(self, future: Future[Any], sm_node: str) -> None:
+        try:
+            definition_str = future.result()
+        except Exception:
+            return
+        if not definition_str:
+            return
+        self._ensure_not_cancelled()
+        try:
+            definition = json.loads(definition_str)
+        except Exception:
+            return
+
+        # Walk all states and extract Task resource ARNs
+        states = definition.get("States", {})
+        self._extract_sfn_state_edges(sm_node, states)
+
+    def _extract_sfn_state_edges(self, sm_node: str, states: Dict[str, Any]) -> None:
+        """Recursively traverse Step Functions states to find Task resource ARNs."""
+        for state_name, state in states.items():
+            self._ensure_not_cancelled()
+            state_type = state.get("Type", "")
+
+            if state_type == "Task":
+                resource = state.get("Resource", "")
+                params = state.get("Parameters", {})
+                self._apply_sfn_task_edge(sm_node, resource, params)
+
+            # Recurse into Parallel branches
+            for branch in state.get("Branches", []):
+                self._extract_sfn_state_edges(sm_node, branch.get("States", {}))
+
+            # Recurse into Map iterator
+            iterator = state.get("Iterator") or state.get("ItemProcessor", {})
+            if iterator:
+                self._extract_sfn_state_edges(sm_node, iterator.get("States", {}))
+
+    def _apply_sfn_task_edge(self, sm_node: str, resource: str, params: Dict[str, Any]) -> None:
+        """Resolve a Step Functions Task resource to a target node and add an edge."""
+        if not resource:
+            return
+
+        # Direct Lambda ARN: arn:aws:lambda:...
+        if ":lambda:" in resource and ":function:" in resource:
+            target = self._add_arn_node(resource.split(":$")[0])
+            self.store.add_edge(sm_node, target, relationship="invokes", via="sfn_task")
+            return
+
+        # Optimised integrations: arn:aws:states:::lambda:invoke
+        if "states:::lambda" in resource:
+            fn_arn = (params.get("FunctionName") or params.get("FunctionName.$", "")).split(":$")[0]
+            if fn_arn.startswith("arn:aws:lambda:"):
+                target = self._add_arn_node(fn_arn)
+                self.store.add_edge(sm_node, target, relationship="invokes", via="sfn_task")
+            return
+
+        if "states:::dynamodb" in resource:
+            table_name = params.get("TableName") or params.get("TableName.$", "")
+            if table_name and not table_name.startswith("$"):
+                node_id = self._make_node_id("dynamodb", table_name)
+                self._node(node_id, label=table_name, service="dynamodb", type="table", arn=table_name)
+                self.store.add_edge(sm_node, node_id, relationship="reads_writes", via="sfn_task")
+            return
+
+        if "states:::sqs" in resource:
+            queue_url = params.get("QueueUrl") or params.get("QueueUrl.$", "")
+            if queue_url and not queue_url.startswith("$"):
+                node_id = self._make_node_id("sqs", queue_url)
+                self._node(node_id, label=queue_url.split("/")[-1], service="sqs", type="queue", arn=queue_url)
+                self.store.add_edge(sm_node, node_id, relationship="sends_to", via="sfn_task")
+            return
+
+        if "states:::sns" in resource:
+            topic_arn = params.get("TopicArn") or params.get("TopicArn.$", "")
+            if topic_arn and topic_arn.startswith("arn:aws:sns:"):
+                target = self._add_arn_node(topic_arn)
+                self.store.add_edge(sm_node, target, relationship="publishes_to", via="sfn_task")
+            return
+
+        if "states:::ecs" in resource:
+            task_def = (params.get("TaskDefinition") or "").split(":")[0]
+            cluster_arn = params.get("Cluster", "")
+            if cluster_arn.startswith("arn:aws:ecs:"):
+                target = self._add_arn_node(cluster_arn)
+                self.store.add_edge(sm_node, target, relationship="runs_task", via="sfn_task")
+            return
+
+        if "states:::glue" in resource:
+            job_name = params.get("JobName") or params.get("JobName.$", "")
+            if job_name and not job_name.startswith("$"):
+                node_id = self._make_node_id("glue", job_name)
+                self._node(node_id, label=job_name, service="glue", type="job",
+                            arn=f"arn:aws:glue:{self._region}:*:job/{job_name}")
+                self.store.add_edge(sm_node, node_id, relationship="runs_job", via="sfn_task")
+            return
+
+        if "states:::states:startExecution" in resource:
+            child_arn = params.get("StateMachineArn") or params.get("StateMachineArn.$", "")
+            if child_arn and child_arn.startswith("arn:aws:states:"):
+                target = self._add_arn_node(child_arn)
+                self.store.add_edge(sm_node, target, relationship="starts", via="sfn_task")
 
     # ── SNS ──────────────────────────────────────────────────────────────────
 
     def _scan_sns(self, session: boto3.session.Session) -> None:
         client = self._client(session, "sns")
+        topic_nodes: Dict[str, str] = {}  # topic_arn -> node_id
+
         paginator = client.get_paginator("list_topics")
         for page in paginator.paginate():
             self._ensure_not_cancelled()
@@ -965,6 +1177,35 @@ class AWSGraphScanner:
                 topic_name = arn.split(":")[-1]
                 node_id = self._add_arn_node(arn, label=topic_name, node_type="topic")
                 self._node(node_id, service="sns")
+                topic_nodes[arn] = node_id
+
+        # SNS → Lambda / SQS / SNS (subscriptions)
+        try:
+            sub_paginator = client.get_paginator("list_subscriptions")
+            for page in sub_paginator.paginate():
+                self._ensure_not_cancelled()
+                self._increment_api_call("sns", "list_subscriptions")
+                for sub in page.get("Subscriptions", []):
+                    self._ensure_not_cancelled()
+                    topic_arn = sub.get("TopicArn", "")
+                    endpoint = sub.get("Endpoint", "")
+                    protocol = sub.get("Protocol", "")
+                    # Skip pending confirmations and non-ARN endpoints (email, http, sms)
+                    if not topic_arn or not endpoint.startswith("arn:aws:"):
+                        continue
+                    topic_node = topic_nodes.get(topic_arn) or self._add_arn_node(
+                        topic_arn, node_type="topic"
+                    )
+                    target_node = self._add_arn_node(endpoint)
+                    self.store.add_edge(
+                        topic_node,
+                        target_node,
+                        relationship="notifies",
+                        via="sns_subscription",
+                        protocol=protocol,
+                    )
+        except (ClientError, BotoCoreError) as exc:
+            logger.debug("SNS subscription scan skipped: %s", exc)
 
     # ── Kinesis ──────────────────────────────────────────────────────────────
 
@@ -1012,9 +1253,18 @@ class AWSGraphScanner:
 
     # ── Cognito ──────────────────────────────────────────────────────────────
 
+    _COGNITO_LAMBDA_TRIGGERS = [
+        "PreSignUp", "CustomMessage", "PostConfirmation", "PreAuthentication",
+        "PostAuthentication", "DefineAuthChallenge", "CreateAuthChallenge",
+        "VerifyAuthChallengeResponse", "PreTokenGeneration", "UserMigration",
+        "CustomSMSSender", "CustomEmailSender",
+    ]
+
     def _scan_cognito(self, session: boto3.session.Session) -> None:
         client = self._client(session, "cognito-idp")
+        pool_nodes: List[tuple[str, str]] = []  # (pool_id, node_id)
         next_token: Optional[str] = None
+
         while True:
             self._ensure_not_cancelled()
             kwargs: Dict[str, Any] = {"MaxResults": 60}
@@ -1028,9 +1278,42 @@ class AWSGraphScanner:
                 arn = f"arn:aws:cognito-idp:{self._region}:*:userpool/{pool_id}"
                 node_id = self._make_node_id("cognito", pool_id)
                 self._node(node_id, label=pool.get("Name", pool_id), service="cognito", type="user_pool", arn=arn)
+                pool_nodes.append((pool_id, node_id))
             next_token = page.get("NextToken")
             if not next_token:
                 break
+
+        # Cognito → Lambda (pre/post hooks)
+        if pool_nodes:
+            workers = max(1, min(8, len(pool_nodes)))
+            with ThreadPoolExecutor(max_workers=workers) as pool_executor:
+                futures = {
+                    pool_executor.submit(self._fetch_cognito_lambda_config, client, pool_id): node_id
+                    for pool_id, node_id in pool_nodes
+                }
+                self._drain_futures(futures, self._apply_cognito_lambda_edges)
+
+    def _fetch_cognito_lambda_config(self, client: Any, pool_id: str) -> Dict[str, Any]:
+        try:
+            self._increment_api_call("cognito", "describe_user_pool")
+            return client.describe_user_pool(UserPoolId=pool_id).get("UserPool", {}).get("LambdaConfig", {})
+        except (ClientError, BotoCoreError) as exc:
+            logger.debug("Cognito describe_user_pool failed for %s: %s", pool_id, exc)
+            return {}
+
+    def _apply_cognito_lambda_edges(self, future: Future[Any], pool_node: str) -> None:
+        try:
+            lambda_config = future.result()
+        except Exception:
+            return
+        self._ensure_not_cancelled()
+        for trigger in self._COGNITO_LAMBDA_TRIGGERS:
+            fn_arn = lambda_config.get(trigger, "")
+            if fn_arn and fn_arn.startswith("arn:aws:lambda:"):
+                target_node = self._add_arn_node(fn_arn)
+                self.store.add_edge(
+                    pool_node, target_node, relationship="triggers", via=f"cognito_{trigger.lower()}"
+                )
 
     # ── CloudFront ───────────────────────────────────────────────────────────
 
@@ -1053,6 +1336,23 @@ class AWSGraphScanner:
                     state=dist.get("Status"),
                     domain=domain,
                 )
+                # CloudFront → S3 / custom origins
+                for origin in (dist.get("Origins") or {}).get("Items", []):
+                    origin_domain = origin.get("DomainName", "")
+                    # S3 origins: bucket.s3.amazonaws.com or bucket.s3.region.amazonaws.com
+                    if ".s3." in origin_domain or origin_domain.endswith(".s3.amazonaws.com"):
+                        bucket_name = origin_domain.split(".s3.")[0]
+                        s3_node = self._make_node_id("s3", bucket_name)
+                        self._node(
+                            s3_node,
+                            label=bucket_name,
+                            service="s3",
+                            type="bucket",
+                            arn=f"arn:aws:s3:::{bucket_name}",
+                        )
+                        self.store.add_edge(
+                            node_id, s3_node, relationship="serves_from", via="cloudfront_origin"
+                        )
 
     # ── ElastiCache ──────────────────────────────────────────────────────────
 
@@ -1083,6 +1383,8 @@ class AWSGraphScanner:
 
     def _scan_glue(self, session: boto3.session.Session) -> None:
         client = self._client(session, "glue")
+        job_names: List[str] = []
+
         # Jobs
         next_token: Optional[str] = None
         while True:
@@ -1097,15 +1399,66 @@ class AWSGraphScanner:
                 arn = f"arn:aws:glue:{self._region}:*:job/{job_name}"
                 node_id = self._make_node_id("glue", job_name)
                 self._node(node_id, label=job_name, service="glue", type="job", arn=arn)
+                job_names.append(job_name)
             next_token = page.get("NextToken")
             if not next_token:
                 break
+
+        # Glue → S3 (source/target buckets from job arguments) and Glue → RDS (connections)
+        if job_names:
+            workers = max(1, min(8, len(job_names)))
+            with ThreadPoolExecutor(max_workers=workers) as pool:
+                futures = {
+                    pool.submit(self._fetch_glue_job_detail, client, name): name
+                    for name in job_names
+                }
+                self._drain_futures(futures, self._apply_glue_job_edges)
+
+    def _fetch_glue_job_detail(self, client: Any, job_name: str) -> Dict[str, Any]:
+        try:
+            self._increment_api_call("glue", "get_job")
+            return client.get_job(JobName=job_name).get("Job", {})
+        except (ClientError, BotoCoreError) as exc:
+            logger.debug("Glue get_job failed for %s: %s", job_name, exc)
+            return {}
+
+    def _apply_glue_job_edges(self, future: Future[Any], job_name: str) -> None:
+        try:
+            job = future.result()
+        except Exception:
+            return
+        self._ensure_not_cancelled()
+        job_node = self._make_node_id("glue", job_name)
+
+        # Extract S3 bucket references from job arguments
+        args = job.get("DefaultArguments") or {}
+        s3_buckets: Set[str] = set()
+        for val in args.values():
+            if isinstance(val, str) and val.startswith("s3://"):
+                # s3://bucket-name/path/... → extract bucket-name
+                parts = val[5:].split("/")
+                if parts[0]:
+                    s3_buckets.add(parts[0])
+        for bucket_name in s3_buckets:
+            s3_node = self._make_node_id("s3", bucket_name)
+            self._node(s3_node, label=bucket_name, service="s3", type="bucket",
+                        arn=f"arn:aws:s3:::{bucket_name}")
+            self.store.add_edge(job_node, s3_node, relationship="reads_writes", via="glue_job_argument")
+
+        # Glue connections (JDBC → RDS/Redshift)
+        for conn_name in _safe_list(job.get("Connections", {}).get("Connections")):
+            conn_node = self._make_node_id("glue", f"connection:{conn_name}")
+            self._node(conn_node, label=conn_name, service="glue", type="connection",
+                        arn=f"arn:aws:glue:{self._region}:*:connection/{conn_name}")
+            self.store.add_edge(job_node, conn_node, relationship="uses", via="glue_connection")
 
     # ── AppSync ──────────────────────────────────────────────────────────────
 
     def _scan_appsync(self, session: boto3.session.Session) -> None:
         client = self._client(session, "appsync")
+        api_ids: List[tuple[str, str]] = []  # (api_id, node_id)
         next_token: Optional[str] = None
+
         while True:
             self._ensure_not_cancelled()
             kwargs: Dict[str, Any] = {}
@@ -1116,11 +1469,204 @@ class AWSGraphScanner:
             for api in page.get("graphqlApis", []):
                 self._ensure_not_cancelled()
                 arn = api.get("arn", "")
+                api_id = api.get("apiId", "")
                 node_id = self._add_arn_node(arn, label=api.get("name"), node_type="api")
                 self._node(node_id, service="appsync", auth_type=api.get("authenticationType"))
+                api_ids.append((api_id, node_id))
             next_token = page.get("nextToken")
             if not next_token:
                 break
+
+        # AppSync → Lambda / DynamoDB / RDS (data sources)
+        if api_ids:
+            workers = max(1, min(8, len(api_ids)))
+            with ThreadPoolExecutor(max_workers=workers) as pool:
+                futures = {
+                    pool.submit(self._fetch_appsync_data_sources, client, api_id): node_id
+                    for api_id, node_id in api_ids
+                }
+                self._drain_futures(futures, self._apply_appsync_edges)
+
+    def _fetch_appsync_data_sources(self, client: Any, api_id: str) -> List[Dict[str, Any]]:
+        sources: List[Dict[str, Any]] = []
+        next_token: Optional[str] = None
+        while True:
+            try:
+                self._ensure_not_cancelled()
+                kwargs: Dict[str, Any] = {"apiId": api_id}
+                if next_token:
+                    kwargs["nextToken"] = next_token
+                self._increment_api_call("appsync", "list_data_sources")
+                page = client.list_data_sources(**kwargs)
+                sources.extend(page.get("dataSources", []))
+                next_token = page.get("nextToken")
+                if not next_token:
+                    break
+            except (ClientError, BotoCoreError) as exc:
+                logger.debug("AppSync list_data_sources failed for %s: %s", api_id, exc)
+                break
+        return sources
+
+    def _apply_appsync_edges(self, future: Future[Any], api_node: str) -> None:
+        try:
+            sources = future.result()
+        except Exception:
+            return
+        self._ensure_not_cancelled()
+        for source in sources:
+            src_type = source.get("type", "")
+            if src_type == "AWS_LAMBDA":
+                fn_arn = (source.get("lambdaConfig") or {}).get("lambdaFunctionArn", "")
+                if fn_arn.startswith("arn:aws:lambda:"):
+                    target = self._add_arn_node(fn_arn)
+                    self.store.add_edge(api_node, target, relationship="resolves_via", via="appsync_datasource")
+            elif src_type == "AMAZON_DYNAMODB":
+                table_name = (source.get("dynamodbConfig") or {}).get("tableName", "")
+                if table_name:
+                    node_id = self._make_node_id("dynamodb", table_name)
+                    self._node(node_id, label=table_name, service="dynamodb", type="table", arn=table_name)
+                    self.store.add_edge(api_node, node_id, relationship="resolves_via", via="appsync_datasource")
+            elif src_type == "RELATIONAL_DATABASE":
+                db_cluster_id = (source.get("relationalDatabaseConfig") or {}).get(
+                    "rdsHttpEndpointConfig", {}
+                ).get("dbClusterIdentifier", "")
+                if db_cluster_id:
+                    node_id = self._make_node_id("rds", db_cluster_id)
+                    self._node(node_id, label=db_cluster_id, service="rds", type="cluster", arn=db_cluster_id)
+                    self.store.add_edge(api_node, node_id, relationship="resolves_via", via="appsync_datasource")
+
+    # ── Route 53 ─────────────────────────────────────────────────────────────
+
+    # Map Route 53 canonical hosted zone IDs to AWS service types for alias target detection
+    _R53_ALIAS_ZONE_TO_SERVICE: Dict[str, str] = {
+        "Z2FDTNDATAQYW2": "cloudfront",   # CloudFront global
+        "Z35SXDOTRQ7X7K": "elb",          # us-east-1 ELB
+        "Z368ELLRRE2KJ0": "elb",          # us-west-2 ELB
+        "Z3DZXE0Q79N41H": "elb",          # us-west-1 ELB
+        "Z1H1FL5HABSF5":  "elb",          # ap-southeast-1 ELB
+        "Z3QFB96KE08076": "elb",          # ap-southeast-2 ELB
+        "Z3AADJGX6KTTL2": "elb",          # ap-northeast-1 ELB
+        "Z215JYRZR1TBD5": "elb",          # eu-west-1 ELB
+    }
+
+    def _scan_route53(self, session: boto3.session.Session) -> None:
+        # Route 53 is global — use us-east-1
+        client = session.client("route53", config=self._client_config)
+        zone_nodes: List[tuple[str, str]] = []  # (zone_id, node_id)
+
+        # Hosted zones
+        marker: Optional[str] = None
+        while True:
+            self._ensure_not_cancelled()
+            kwargs: Dict[str, Any] = {"MaxItems": "100"}
+            if marker:
+                kwargs["Marker"] = marker
+            self._increment_api_call("route53", "list_hosted_zones")
+            page = client.list_hosted_zones(**kwargs)
+            for zone in page.get("HostedZones", []):
+                self._ensure_not_cancelled()
+                zone_id = zone["Id"].split("/")[-1]
+                zone_name = zone.get("Name", zone_id).rstrip(".")
+                arn = f"arn:aws:route53:::hostedzone/{zone_id}"
+                node_id = self._make_node_id("route53", zone_id)
+                self._node(
+                    node_id,
+                    label=zone_name,
+                    service="route53",
+                    type="hosted_zone",
+                    arn=arn,
+                    private_zone=zone.get("Config", {}).get("PrivateZone", False),
+                    record_count=zone.get("ResourceRecordSetCount"),
+                )
+                zone_nodes.append((zone_id, node_id))
+            if not page.get("IsTruncated"):
+                break
+            marker = page.get("NextMarker")
+
+        # Route 53 → CloudFront / ELB (alias records)
+        if zone_nodes:
+            workers = max(1, min(8, len(zone_nodes)))
+            with ThreadPoolExecutor(max_workers=workers) as pool:
+                futures = {
+                    pool.submit(self._fetch_r53_alias_targets, client, zone_id): zone_node
+                    for zone_id, zone_node in zone_nodes
+                }
+                self._drain_futures(futures, self._apply_r53_edges)
+
+    def _fetch_r53_alias_targets(self, client: Any, zone_id: str) -> List[Dict[str, Any]]:
+        aliases: List[Dict[str, Any]] = []
+        next_id: Optional[str] = None
+        next_type: Optional[str] = None
+        while True:
+            try:
+                self._ensure_not_cancelled()
+                kwargs: Dict[str, Any] = {"HostedZoneId": zone_id, "MaxItems": "300"}
+                if next_id:
+                    kwargs["StartRecordName"] = next_id
+                    kwargs["StartRecordType"] = next_type
+                self._increment_api_call("route53", "list_resource_record_sets")
+                page = client.list_resource_record_sets(**kwargs)
+                for record in page.get("ResourceRecordSets", []):
+                    alias = record.get("AliasTarget")
+                    if alias:
+                        aliases.append({
+                            "name": record.get("Name", "").rstrip("."),
+                            "dns": alias.get("DNSName", "").rstrip("."),
+                            "zone": alias.get("HostedZoneId", ""),
+                        })
+                if not page.get("IsTruncated"):
+                    break
+                next_id = page.get("NextRecordName")
+                next_type = page.get("NextRecordType")
+            except (ClientError, BotoCoreError) as exc:
+                logger.debug("Route53 list_resource_record_sets failed for %s: %s", zone_id, exc)
+                break
+        return aliases
+
+    def _apply_r53_edges(self, future: Future[Any], zone_node: str) -> None:
+        try:
+            aliases = future.result()
+        except Exception:
+            return
+        self._ensure_not_cancelled()
+        for alias in aliases:
+            target_svc = self._R53_ALIAS_ZONE_TO_SERVICE.get(alias["zone"])
+            dns = alias["dns"]
+            if target_svc == "cloudfront" and ".cloudfront.net" in dns:
+                # Create a stub cloudfront node keyed by domain
+                cf_label = dns.split(".cloudfront.net")[0].split(".")[-1]
+                cf_node = self._make_node_id("cloudfront", dns)
+                self._node(cf_node, label=dns, service="cloudfront", type="distribution", arn=dns, domain=dns)
+                self.store.add_edge(zone_node, cf_node, relationship="routes_to", via="route53_alias")
+
+    # ── Redshift ──────────────────────────────────────────────────────────────
+
+    def _scan_redshift(self, session: boto3.session.Session) -> None:
+        client = self._client(session, "redshift")
+        try:
+            paginator = client.get_paginator("describe_clusters")
+            for page in paginator.paginate():
+                self._ensure_not_cancelled()
+                self._increment_api_call("redshift", "describe_clusters")
+                for cluster in page.get("Clusters", []):
+                    self._ensure_not_cancelled()
+                    cluster_id = cluster.get("ClusterIdentifier", "")
+                    arn = f"arn:aws:redshift:{self._region}:*:cluster:{cluster_id}"
+                    node_id = self._make_node_id("redshift", cluster_id)
+                    self._node(
+                        node_id,
+                        label=cluster_id,
+                        service="redshift",
+                        type="cluster",
+                        arn=arn,
+                        state=cluster.get("ClusterStatus"),
+                        node_type=cluster.get("NodeType"),
+                        num_nodes=cluster.get("NumberOfNodes"),
+                        db_name=cluster.get("DBName"),
+                        vpc_id=cluster.get("VpcId"),
+                    )
+        except (ClientError, BotoCoreError) as exc:
+            logger.warning("Redshift scan failed: %s", exc)
 
     def _scan_generic_service(self, session: boto3.session.Session, service_name: str) -> None:
         client = self._client(session, "resourcegroupstaggingapi")

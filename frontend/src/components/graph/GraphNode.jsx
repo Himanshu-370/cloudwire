@@ -77,6 +77,18 @@ function getTooltipRows(node) {
     if (node.protocol) rows.push({ key: "protocol", val: node.protocol });
   } else if (svc === "kinesis") {
     if (node.shard_count != null) rows.push({ key: "shards", val: String(node.shard_count) });
+  } else if (svc === "redshift") {
+    if (node.node_type)  rows.push({ key: "node type", val: node.node_type });
+    if (node.num_nodes != null) rows.push({ key: "nodes", val: String(node.num_nodes) });
+    if (node.db_name)    rows.push({ key: "database", val: node.db_name });
+    if (node.vpc_id)     rows.push({ key: "vpc", val: node.vpc_id });
+  } else if (svc === "route53") {
+    if (node.private_zone != null) rows.push({ key: "type", val: node.private_zone ? "private" : "public" });
+    if (node.record_count != null) rows.push({ key: "records", val: String(node.record_count) });
+  } else if (svc === "glue") {
+    if (node.type) rows.push({ key: "type", val: node.type });
+  } else if (svc === "appsync") {
+    if (node.auth_type) rows.push({ key: "auth", val: node.auth_type });
   }
 
   // ARN — always last, truncated
