@@ -106,13 +106,16 @@ export const GraphCanvas = forwardRef(function GraphCanvas(
         const frame = getNodeFrame(node, selectedNodeId === node.id);
         return {
           ...node,
-          position: localPositions[node.id] || node.position,
+          position: localPositions[node.id] || node.position || { x: 0, y: 0 },
           width: frame.width,
           height: frame.height,
         };
       }),
     [localPositions, nodes, selectedNodeId]
   );
+
+  const nodesRef = useRef(nodesWithPositions);
+  nodesRef.current = nodesWithPositions;
 
   const nodeMap = useMemo(() => buildNodeMap(nodesWithPositions), [nodesWithPositions]);
 
@@ -174,13 +177,14 @@ export const GraphCanvas = forwardRef(function GraphCanvas(
   }, []);
 
   const fitGraph = useCallback(() => {
-    if (!containerRef.current || !nodesWithPositions.length) return;
+    if (!containerRef.current || !nodesRef.current.length) return;
     clearFitTimers();
-    const run = () => fitToNodes(containerRef.current, nodesWithPositions);
+    // Read from ref so delayed callbacks always use the latest positions
+    const run = () => fitToNodes(containerRef.current, nodesRef.current);
     window.requestAnimationFrame(run);
     fitTimersRef.current.push(window.setTimeout(run, 80));
-    fitTimersRef.current.push(window.setTimeout(run, 220));
-  }, [clearFitTimers, fitToNodes, nodesWithPositions]);
+    fitTimersRef.current.push(window.setTimeout(run, 250));
+  }, [clearFitTimers, fitToNodes]);
 
   // Keep a stable ref so the fit effect can always call the latest fitGraph
   // without listing fitGraph as a dependency (which would re-trigger on every
@@ -495,19 +499,19 @@ export const GraphCanvas = forwardRef(function GraphCanvas(
         </ViewportScaleContext.Provider>
       </svg>
       <div className="graph-canvas-corner">
-        <div className="canvas-viewport-controls">
-          <button onClick={fitGraph} title="Fit graph to view">FIT</button>
-          <button onClick={resetView} title="Reset zoom and pan">RESET</button>
-          <button onClick={() => zoomAtPoint(1.18, { x: containerRef.current?.clientWidth / 2 || 0, y: containerRef.current?.clientHeight / 2 || 0 })} title="Zoom in">+</button>
-          <button onClick={() => zoomAtPoint(0.84, { x: containerRef.current?.clientWidth / 2 || 0, y: containerRef.current?.clientHeight / 2 || 0 })} title="Zoom out">−</button>
-        </div>
+        <GraphLegend />
         <Minimap
           nodes={nodesWithPositions}
           viewport={viewport}
           containerRef={containerRef}
           onPan={handleMinimapPan}
         />
-        <GraphLegend />
+        <div className="canvas-viewport-controls">
+          <button onClick={() => zoomAtPoint(0.84, { x: containerRef.current?.clientWidth / 2 || 0, y: containerRef.current?.clientHeight / 2 || 0 })} title="Zoom out">−</button>
+          <button onClick={fitGraph} title="Fit graph to view">FIT</button>
+          <button onClick={resetView} title="Reset zoom and pan">RST</button>
+          <button onClick={() => zoomAtPoint(1.18, { x: containerRef.current?.clientWidth / 2 || 0, y: containerRef.current?.clientHeight / 2 || 0 })} title="Zoom in">+</button>
+        </div>
       </div>
     </div>
   );

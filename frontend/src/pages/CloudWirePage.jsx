@@ -1,26 +1,20 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { ErrorBoundary } from "../components/ErrorBoundary";
 import { GraphCanvas } from "../components/graph/GraphCanvas";
 import { InspectorPanel } from "../components/layout/InspectorPanel";
+import { LayoutDropdown } from "../components/layout/LayoutDropdown";
 import { ServiceSidebar } from "../components/layout/ServiceSidebar";
 import { TopBar } from "../components/layout/TopBar";
-import { useClickOutside } from "../hooks/useClickOutside";
+import { WarningsPanel } from "../components/layout/WarningsPanel";
+import { useGraphPipeline } from "../hooks/useGraphPipeline";
+import { usePathFinder } from "../hooks/usePathFinder";
 import { useScanPolling, formatJobStatusLabel } from "../hooks/useScanPolling";
 import { useTagDiscovery } from "../hooks/useTagDiscovery";
 import { DEFAULT_REGION } from "../lib/awsRegions";
 import {
-  buildClusteredGraph,
-  collapseContainerNodes,
   computeBlastRadius,
-  computeFocusSubgraph,
-  computeNetworkAnnotations,
-  countServices,
   detectPatterns,
-  filterGraphByRegion,
-  findShortestPath,
   generateArchitectureSummary,
-  layoutHybridGraph,
-  layoutSwimlane,
-  partitionByConnectivity,
 } from "../lib/graphTransforms";
 
 const DEFAULT_SERVICES = ["apigateway", "lambda", "sqs", "eventbridge", "dynamodb", "vpc"];
@@ -37,93 +31,6 @@ function loadStoredServices() {
     console.warn("Failed to restore services from localStorage:", err);
     return DEFAULT_SERVICES;
   }
-}
-
-function WarningsPanel({ warnings }) {
-  const [expanded, setExpanded] = useState(false);
-  const permissionWarnings = warnings.filter((w) => w.startsWith("[permission]"));
-  const errorWarnings = warnings.filter((w) => w.startsWith("[error]"));
-  const otherWarnings = warnings.filter((w) => !w.startsWith("[permission]") && !w.startsWith("[error]"));
-
-  return (
-    <div className="graph-stage-warnings">
-      <button className="graph-warnings-toggle" onClick={() => setExpanded((v) => !v)}>
-        <span>
-          {permissionWarnings.length > 0 && (
-            <span className="graph-warnings-perm-badge">{permissionWarnings.length} permission error{permissionWarnings.length === 1 ? "" : "s"}</span>
-          )}
-          {errorWarnings.length > 0 && (
-            <span className="graph-warnings-perm-badge">{errorWarnings.length} error{errorWarnings.length === 1 ? "" : "s"}</span>
-          )}
-          {otherWarnings.length > 0 && (
-            <span className="graph-warnings-other-badge">{otherWarnings.length} warning{otherWarnings.length === 1 ? "" : "s"}</span>
-          )}
-        </span>
-        <span className="graph-warnings-caret">{expanded ? "▼" : "▲"}</span>
-      </button>
-      {expanded && (
-        <ul className="graph-warnings-list">
-          {permissionWarnings.map((w, i) => (
-            <li key={`p-${i}`} className="graph-warnings-item graph-warnings-item--perm">
-              {w.replace("[permission] ", "")}
-            </li>
-          ))}
-          {errorWarnings.map((w, i) => (
-            <li key={`e-${i}`} className="graph-warnings-item graph-warnings-item--error">
-              {w.replace("[error] ", "")}
-            </li>
-          ))}
-          {otherWarnings.map((w, i) => (
-            <li key={`o-${i}`} className="graph-warnings-item">
-              {w}
-            </li>
-          ))}
-        </ul>
-      )}
-    </div>
-  );
-}
-
-const LAYOUT_OPTIONS = [
-  { value: "circular", label: "Circular", icon: "⬡" },
-  { value: "flow", label: "Flow", icon: "⇶" },
-  { value: "swimlane", label: "Swimlane", icon: "☰" },
-];
-
-function LayoutDropdown({ layoutMode, onLayoutModeChange }) {
-  const [open, setOpen] = useState(false);
-  const wrapRef = React.useRef(null);
-  const current = LAYOUT_OPTIONS.find((o) => o.value === layoutMode) || LAYOUT_OPTIONS[0];
-  const close = useCallback(() => setOpen(false), []);
-  useClickOutside(wrapRef, close, open);
-
-  return (
-    <div className="layout-select-wrap" ref={wrapRef}>
-      <button
-        className={`layout-select-trigger ${open ? "open" : ""}`}
-        onClick={() => setOpen((v) => !v)}
-        title="Switch layout mode"
-      >
-        <span className="layout-select-trigger-icon">{current.icon}</span>
-        {current.label}
-        <span className="layout-select-caret">{open ? "▼" : "▶"}</span>
-      </button>
-      {open && (
-        <div className="layout-select-panel">
-          {LAYOUT_OPTIONS.map((opt) => (
-            <div
-              key={opt.value}
-              className={`layout-select-item ${layoutMode === opt.value ? "active" : ""}`}
-              onClick={() => { onLayoutModeChange(opt.value); setOpen(false); }}
-            >
-              <span className="layout-select-item-icon">{opt.icon}</span>
-              {opt.label}
-            </div>
-          ))}
-        </div>
-      )}
-    </div>
-  );
 }
 
 export default function CloudWirePage() {
@@ -163,9 +70,6 @@ export default function CloudWirePage() {
   const [collapsedServices, setCollapsedServices] = useState(new Set());
   const [focusModeActive, setFocusModeActive] = useState(false);
   const [focusDepth, setFocusDepth] = useState(1);
-  const [pathFinderMode, setPathFinderMode] = useState(false);
-  const [pathSource, setPathSource] = useState(null);
-  const [foundPath, setFoundPath] = useState([]);
   const [blastRadiusMode, setBlastRadiusMode] = useState(false);
   const [showFlowAnimation, setShowFlowAnimation] = useState(true);
   const [showSummary, setShowSummary] = useState(false);
@@ -175,6 +79,41 @@ export default function CloudWirePage() {
   const [hoveredExposedPath, setHoveredExposedPath] = useState(null);
 
   const tagDiscovery = useTagDiscovery(region, scanFilterMode === "tags");
+
+  // --- Data pipeline ---
+  const {
+    visibleNodes,
+    visibleIds,
+    visibleEdges,
+    serviceCounts,
+    isolatedNodes,
+    allIsolated,
+    graphNodes,
+    graphEdges,
+    laidOutGraph,
+  } = useGraphPipeline({
+    graphData,
+    region,
+    hiddenServices,
+    showIsolated,
+    collapsedServices,
+    collapsedContainers,
+    focusModeActive,
+    selectedNodeId,
+    focusDepth,
+    layoutMode,
+  });
+
+  // --- Path finder ---
+  const {
+    pathFinderMode,
+    pathSource,
+    foundPath,
+    pathNotFound,
+    handleNodeSelect: pathFinderHandleNodeSelect,
+    resetPathFinder,
+    togglePathFinderMode,
+  } = usePathFinder(graphNodes, graphEdges);
 
   // FIX #5/#10: deferred layout change with proper timer cleanup
   const changeLayout = useCallback((newMode) => {
@@ -196,89 +135,6 @@ export default function CloudWirePage() {
   // Persist region/services to localStorage
   useEffect(() => { localStorage.setItem("cloudwire_region", region); }, [region]);
   useEffect(() => { localStorage.setItem("cloudwire_services", JSON.stringify(selectedServices)); }, [selectedServices]);
-
-  // --- Data pipeline ---
-
-  // Region filter
-  const regionFilteredGraph = useMemo(
-    () => filterGraphByRegion(graphData.nodes, graphData.edges, region),
-    [graphData.edges, graphData.nodes, region]
-  );
-
-  // Service visibility filter
-  const visibleNodes = useMemo(
-    () => regionFilteredGraph.nodes.filter((node) => !hiddenServices.includes(node.service || "unknown")),
-    [hiddenServices, regionFilteredGraph.nodes]
-  );
-  const visibleIds = useMemo(() => new Set(visibleNodes.map((node) => node.id)), [visibleNodes]);
-  const visibleEdges = useMemo(
-    () => regionFilteredGraph.edges.filter((edge) => visibleIds.has(edge.source) && visibleIds.has(edge.target)),
-    [regionFilteredGraph.edges, visibleIds]
-  );
-
-  // Service counts from all visible nodes (before clustering/focus)
-  // Note: tag-based filtering is done server-side by filter_by_arns() — the
-  // backend graph already contains only matching resources, so no client-side
-  // ARN filter is needed here.
-  const serviceCounts = useMemo(() => countServices(visibleNodes), [visibleNodes]);
-
-  // Partition into connected vs isolated
-  const { connected: connectedNodes, isolated: isolatedNodes } = useMemo(
-    () => partitionByConnectivity(visibleNodes, visibleEdges),
-    [visibleNodes, visibleEdges]
-  );
-
-  // Apply isolated filter
-  // If there are no connected nodes at all, always show everything so the
-  // canvas isn't blank after a successful scan (e.g. SNS+SQS with no edges).
-  const allIsolated = connectedNodes.length === 0 && visibleNodes.length > 0;
-  const preClusterNodes = useMemo(
-    () => (showIsolated || allIsolated ? visibleNodes : connectedNodes),
-    [showIsolated, allIsolated, visibleNodes, connectedNodes]
-  );
-  const preClusterNodeIds = useMemo(() => new Set(preClusterNodes.map((n) => n.id)), [preClusterNodes]);
-  const preClusterEdges = useMemo(
-    () => visibleEdges.filter((e) => preClusterNodeIds.has(e.source) && preClusterNodeIds.has(e.target)),
-    [visibleEdges, preClusterNodeIds]
-  );
-
-  // Apply clustering
-  const { nodes: clusteredNodes, edges: clusteredEdges } = useMemo(
-    () => buildClusteredGraph(preClusterNodes, preClusterEdges, collapsedServices),
-    [preClusterNodes, preClusterEdges, collapsedServices]
-  );
-
-  // Apply container collapse (VPC/AZ/subnet)
-  const { nodes: containerNodes, edges: containerEdges } = useMemo(
-    () => collapseContainerNodes(clusteredNodes, clusteredEdges, collapsedContainers),
-    [clusteredNodes, clusteredEdges, collapsedContainers]
-  );
-
-  // Apply focus mode
-  const focusSubgraph = useMemo(() => {
-    if (!focusModeActive || !selectedNodeId) return { nodes: containerNodes, edges: containerEdges };
-    return computeFocusSubgraph(containerNodes, containerEdges, selectedNodeId, focusDepth);
-  }, [focusModeActive, selectedNodeId, containerNodes, containerEdges, focusDepth]);
-
-  // Layout
-  const laidOutGraph = useMemo(() => {
-    const result = layoutMode === "swimlane"
-      ? layoutSwimlane(focusSubgraph.nodes, focusSubgraph.edges)
-      : layoutHybridGraph(focusSubgraph.nodes, focusSubgraph.edges, layoutMode);
-    // Add VPC/subnet container annotations
-    const networkAnnotations = computeNetworkAnnotations(result.nodes, focusSubgraph.edges);
-    if (networkAnnotations.length > 0) {
-      result.annotations = [...networkAnnotations, ...(result.annotations || [])];
-    }
-    return result;
-  }, [focusSubgraph, layoutMode]);
-
-  const graphNodes = laidOutGraph.nodes;
-  const graphNodeIds = useMemo(() => new Set(graphNodes.map((node) => node.id)), [graphNodes]);
-  const graphEdges = useMemo(
-    () => focusSubgraph.edges.filter((edge) => graphNodeIds.has(edge.source) && graphNodeIds.has(edge.target)),
-    [graphNodeIds, focusSubgraph.edges]
-  );
 
   // --- Auto-collapse effect ---
   const AUTO_COLLAPSE_THRESHOLD = 8;
@@ -360,22 +216,6 @@ export default function CloudWirePage() {
     };
   }, [currentJobId, fetchResource, selectedNodeId, setError]);
 
-  // Clear path when exiting path finder mode
-  useEffect(() => {
-    if (!pathFinderMode) {
-      setPathSource(null);
-      setFoundPath([]);
-    }
-  }, [pathFinderMode]);
-
-  // FIX #15: path-not-found message state with cleanup (replaces setTimeout)
-  const [pathNotFound, setPathNotFound] = useState(false);
-  useEffect(() => {
-    if (!pathNotFound) return undefined;
-    const t = window.setTimeout(() => setPathNotFound(false), 3000);
-    return () => window.clearTimeout(t);
-  }, [pathNotFound]);
-
   const blastRadius = useMemo(() => {
     if (!blastRadiusMode || !selectedNodeId) return null;
     return computeBlastRadius(graphNodes, graphEdges, selectedNodeId);
@@ -422,8 +262,13 @@ export default function CloudWirePage() {
     [visibleNodes, visibleEdges]
   );
 
+  const scanCompleteCount = useRef(0);
+  useEffect(() => {
+    if (!scanLoading && graphNodes.length > 0) scanCompleteCount.current += 1;
+  }, [scanLoading, graphNodes.length]);
+
   const fitKey = useMemo(
-    () => `${region}|${graphNodes.length}|${graphEdges.length}|${graphNodes[0]?.id || ""}|${graphNodes[graphNodes.length - 1]?.id || ""}`,
+    () => `${region}|${graphNodes.length}|${graphEdges.length}|${graphNodes[0]?.id || ""}|${graphNodes[graphNodes.length - 1]?.id || ""}|${scanCompleteCount.current}`,
     [region, graphNodes, graphEdges]
   );
 
@@ -474,8 +319,6 @@ export default function CloudWirePage() {
     }
 
     // Phase 2: scan the discovered services (scanLoading from useScanPolling takes over)
-    // Don't overwrite selectedServices — those are the user's manual selection.
-    // The discovered services are only used for this scan invocation.
     const discoveredServices = result.services;
     try {
       await runScan({
@@ -491,24 +334,11 @@ export default function CloudWirePage() {
   }, [tagDiscovery, region, scanMode, forceRefresh, runScan, setError]);
 
   const handleNodeSelect = useCallback((nodeId) => {
-    if (pathFinderMode) {
-      if (!pathSource) {
-        setPathSource(nodeId);
-        setSelectedNodeId(nodeId);
-      } else if (pathSource === nodeId) {
-        setPathSource(null);
-        setFoundPath([]);
-        setSelectedNodeId(null);
-      } else {
-        const path = findShortestPath(graphNodes, graphEdges, pathSource, nodeId);
-        setFoundPath(path);
-        setSelectedNodeId(nodeId);
-        if (path.length === 0) setPathNotFound(true);
-      }
-    } else {
+    const handled = pathFinderHandleNodeSelect(nodeId, setSelectedNodeId);
+    if (!handled) {
       setSelectedNodeId(nodeId);
     }
-  }, [pathFinderMode, pathSource, graphNodes, graphEdges]);
+  }, [pathFinderHandleNodeSelect]);
 
   return (
     <div className="cloudwire-page">
@@ -538,58 +368,76 @@ export default function CloudWirePage() {
       />
 
       <div className="cloudwire-layout">
-        <ServiceSidebar
-          serviceCounts={serviceCounts}
-          hiddenServices={hiddenServices}
-          onShowAllServices={() => setHiddenServices([])}
-          onToggleService={(service) =>
-            setHiddenServices((previous) =>
-              previous.includes(service) ? previous.filter((value) => value !== service) : [...previous, service]
-            )
-          }
-          collapsedServices={collapsedServices}
-          onToggleCluster={(service) =>
-            setCollapsedServices((prev) => {
-              const next = new Set(prev);
-              if (next.has(service)) next.delete(service);
-              else next.add(service);
-              return next;
-            })
-          }
-          showIsolated={showIsolated}
-          onToggleIsolated={() => setShowIsolated((v) => !v)}
-          isolatedCount={isolatedNodes.length}
-          stats={stats}
-          query={query}
-          onQueryChange={setQuery}
-          filteredNodes={filteredSearchNodes}
-          totalNodes={visibleNodes.length}
-          searchTruncated={searchTruncated}
-          selectedNodeId={selectedNodeId}
-          onSelectNode={(nodeId) => {
-            const node = visibleNodes.find((n) => n.id === nodeId);
-            if (node && collapsedServices.has(node.service)) {
+        <ErrorBoundary name="Sidebar">
+          <ServiceSidebar
+            serviceCounts={serviceCounts}
+            hiddenServices={hiddenServices}
+            onShowAllServices={() => setHiddenServices([])}
+            onToggleService={(service) =>
+              setHiddenServices((previous) =>
+                previous.includes(service) ? previous.filter((value) => value !== service) : [...previous, service]
+              )
+            }
+            collapsedServices={collapsedServices}
+            onToggleCluster={(service) =>
               setCollapsedServices((prev) => {
                 const next = new Set(prev);
-                next.delete(node.service);
+                if (next.has(service)) next.delete(service);
+                else next.add(service);
                 return next;
-              });
+              })
             }
-            setSelectedNodeId(nodeId);
-            graphRef.current?.focusNode(nodeId);
-          }}
-        />
+            showIsolated={showIsolated}
+            onToggleIsolated={() => setShowIsolated((v) => !v)}
+            isolatedCount={isolatedNodes.length}
+            stats={stats}
+            query={query}
+            onQueryChange={setQuery}
+            filteredNodes={filteredSearchNodes}
+            totalNodes={visibleNodes.length}
+            searchTruncated={searchTruncated}
+            selectedNodeId={selectedNodeId}
+            onSelectNode={(nodeId) => {
+              const node = visibleNodes.find((n) => n.id === nodeId);
+              if (node && collapsedServices.has(node.service)) {
+                setCollapsedServices((prev) => {
+                  const next = new Set(prev);
+                  next.delete(node.service);
+                  return next;
+                });
+              }
+              setSelectedNodeId(nodeId);
+              graphRef.current?.focusNode(nodeId);
+            }}
+          />
+        </ErrorBoundary>
 
         <main className="graph-stage-shell">
           {bootstrapLoading && graphNodes.length === 0 && (
             <div className="graph-stage-loading">Connecting to backend...</div>
           )}
 
+          {(scanLoading || tagScanLoading) && (
+            <div className="graph-scan-loading-overlay">
+              <div className="graph-scan-loading-spinner" />
+              <span className="graph-scan-loading-label">
+                {tagScanLoading ? "Discovering resources..." : jobStatus?.current_service ? `Scanning ${jobStatus.current_service}...` : "Scanning..."}
+              </span>
+              {jobStatus?.progress_percent > 0 && (
+                <div className="graph-scan-loading-progress">
+                  <div className="graph-scan-loading-progress-fill" style={{ width: `${jobStatus.progress_percent}%` }} />
+                </div>
+              )}
+            </div>
+          )}
+
           {!bootstrapLoading && !scanLoading && graphNodes.length === 0 && visibleNodes.length === 0 && jobStatus?.status === "completed" && (
             <div className="graph-empty-state">
               <div className="graph-empty-title">No resources found</div>
               <div className="graph-empty-hint">
-                {selectedServices.length === 0
+                {scanFilterMode === "tags"
+                  ? "No resources matched the selected tags in this region. Try different tag filters or check that your resources are tagged."
+                  : selectedServices.length === 0
                   ? "Select at least one service and run a scan."
                   : "The selected services returned no resources in this region. Try a different region or check your AWS credentials."}
               </div>
@@ -647,11 +495,7 @@ export default function CloudWirePage() {
               </button>
               <button
                 className={`focus-toggle-btn ${pathFinderMode ? "active" : ""}`}
-                onClick={() => {
-                  const next = !pathFinderMode;
-                  setPathFinderMode(next);
-                  if (next && selectedNodeId) setPathSource(selectedNodeId);
-                }}
+                onClick={() => togglePathFinderMode(selectedNodeId)}
                 title="Find shortest path between two nodes"
               >
                 {pathFinderMode ? "EXIT PATH" : "PATH FINDER"}
@@ -705,28 +549,30 @@ export default function CloudWirePage() {
             </button>
           </div>
 
-          <GraphCanvas
-            ref={graphRef}
-            nodes={graphNodes}
-            edges={graphEdges}
-            annotations={laidOutGraph.annotations}
-            selectedNodeId={selectedNodeId}
-            onSelectNode={handleNodeSelect}
-            onClearSelection={() => {
-              resourceRequestTokenRef.current += 1;
-              setSelectedNodeId(null);
-              setResourceDetails(null);
-              if (pathFinderMode) { setPathSource(null); setFoundPath([]); }
-            }}
-            fitKey={fitKey}
-            animated={showFlowAnimation}
-            pathNodeIds={pathNodeIds}
-            pathEdgeIds={pathEdgeIds}
-            blastRadius={blastRadius}
-            onAnnotationClick={handleAnnotationClick}
-            collapsedContainers={collapsedContainers}
-            onHoverNode={handleHoverNode}
-          />
+          <ErrorBoundary name="Graph" resetKey={fitKey}>
+            <GraphCanvas
+              ref={graphRef}
+              nodes={graphNodes}
+              edges={graphEdges}
+              annotations={laidOutGraph.annotations}
+              selectedNodeId={selectedNodeId}
+              onSelectNode={handleNodeSelect}
+              onClearSelection={() => {
+                resourceRequestTokenRef.current += 1;
+                setSelectedNodeId(null);
+                setResourceDetails(null);
+                if (pathFinderMode) { resetPathFinder(); }
+              }}
+              fitKey={fitKey}
+              animated={showFlowAnimation}
+              pathNodeIds={pathNodeIds}
+              pathEdgeIds={pathEdgeIds}
+              blastRadius={blastRadius}
+              onAnnotationClick={handleAnnotationClick}
+              collapsedContainers={collapsedContainers}
+              onHoverNode={handleHoverNode}
+            />
+          </ErrorBoundary>
 
           {error && <div className="graph-stage-error">{error}</div>}
           {resourceError && <div className="graph-stage-error graph-stage-error--resource">{resourceError}</div>}
@@ -735,18 +581,20 @@ export default function CloudWirePage() {
         </main>
 
         {resourceDetails && (
-          <InspectorPanel
-            resourceDetails={resourceDetails}
-            allNodes={visibleNodes}
-            onClose={() => {
-              setSelectedNodeId(null);
-              setResourceDetails(null);
-            }}
-            onJumpToNode={(nodeId) => {
-              setSelectedNodeId(nodeId);
-              graphRef.current?.focusNode(nodeId);
-            }}
-          />
+          <ErrorBoundary name="Inspector">
+            <InspectorPanel
+              resourceDetails={resourceDetails}
+              allNodes={visibleNodes}
+              onClose={() => {
+                setSelectedNodeId(null);
+                setResourceDetails(null);
+              }}
+              onJumpToNode={(nodeId) => {
+                setSelectedNodeId(nodeId);
+                graphRef.current?.focusNode(nodeId);
+              }}
+            />
+          </ErrorBoundary>
         )}
       </div>
 

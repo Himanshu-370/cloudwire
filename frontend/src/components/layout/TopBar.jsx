@@ -1,15 +1,18 @@
-import React, { useCallback, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AWS_REGIONS } from "../../lib/awsRegions";
 import { getServiceVisual } from "../../lib/serviceVisuals.jsx";
 import { useClickOutside } from "../../hooks/useClickOutside";
 import { TagFilterBar } from "./TagFilterBar";
 
-const AWS_SERVICE_GROUPS = [
+// Hardcoded fallback — used when the API is unreachable.
+const FALLBACK_SERVICE_GROUPS = [
   {
     label: "API & Integration",
     services: [
       { value: "apigateway", label: "API Gateway" },
       { value: "eventbridge", label: "EventBridge" },
+      { value: "appsync", label: "AppSync" },
+      { value: "mq", label: "Amazon MQ" },
     ],
   },
   {
@@ -18,8 +21,12 @@ const AWS_SERVICE_GROUPS = [
       { value: "lambda", label: "Lambda" },
       { value: "ec2", label: "EC2" },
       { value: "ecs", label: "ECS" },
+      { value: "eks", label: "EKS" },
       { value: "stepfunctions", label: "Step Functions" },
       { value: "glue", label: "Glue" },
+      { value: "emr", label: "EMR" },
+      { value: "elasticbeanstalk", label: "Elastic Beanstalk" },
+      { value: "batch", label: "Batch" },
     ],
   },
   {
@@ -28,6 +35,8 @@ const AWS_SERVICE_GROUPS = [
       { value: "sqs", label: "SQS" },
       { value: "sns", label: "SNS" },
       { value: "kinesis", label: "Kinesis" },
+      { value: "kafka", label: "MSK" },
+      { value: "firehose", label: "Kinesis Firehose" },
     ],
   },
   {
@@ -38,6 +47,9 @@ const AWS_SERVICE_GROUPS = [
       { value: "rds", label: "RDS" },
       { value: "elasticache", label: "ElastiCache" },
       { value: "redshift", label: "Redshift" },
+      { value: "opensearch", label: "OpenSearch" },
+      { value: "efs", label: "EFS" },
+      { value: "ecr", label: "ECR" },
     ],
   },
   {
@@ -47,7 +59,7 @@ const AWS_SERVICE_GROUPS = [
       { value: "cloudfront", label: "CloudFront" },
       { value: "route53", label: "Route 53" },
       { value: "elb", label: "ELB" },
-      { value: "appsync", label: "AppSync" },
+      { value: "acm", label: "ACM" },
     ],
   },
   {
@@ -57,13 +69,76 @@ const AWS_SERVICE_GROUPS = [
       { value: "cognito", label: "Cognito" },
       { value: "secretsmanager", label: "Secrets Manager" },
       { value: "kms", label: "KMS" },
+      { value: "wafv2", label: "WAF" },
+      { value: "guardduty", label: "GuardDuty" },
+    ],
+  },
+  {
+    label: "Monitoring & Mgmt",
+    services: [
+      { value: "cloudwatch", label: "CloudWatch" },
+      { value: "cloudtrail", label: "CloudTrail" },
+      { value: "cloudformation", label: "CloudFormation" },
+    ],
+  },
+  {
+    label: "Analytics & ML",
+    services: [
+      { value: "athena", label: "Athena" },
+      { value: "sagemaker", label: "SageMaker" },
+    ],
+  },
+  {
+    label: "Developer Tools",
+    services: [
+      { value: "codepipeline", label: "CodePipeline" },
+      { value: "codebuild", label: "CodeBuild" },
     ],
   },
 ];
 
-const ALL_SERVICES = AWS_SERVICE_GROUPS.flatMap((g) => g.services);
+/**
+ * Convert the flat list returned by GET /api/services into the grouped
+ * structure the ServiceMultiSelect component expects.
+ */
+function groupServicesPayload(payload) {
+  const groupMap = {};
+  for (const svc of payload.services) {
+    if (!groupMap[svc.group]) groupMap[svc.group] = { label: svc.group, services: [] };
+    groupMap[svc.group].services.push({ value: svc.id, label: svc.label });
+  }
+  return Object.values(groupMap);
+}
 
-function ServiceMultiSelect({ selectedServices, onChange }) {
+function useServiceGroups() {
+  const [groups, setGroups] = useState(FALLBACK_SERVICE_GROUPS);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch("/api/services")
+      .then((res) => {
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        return res.json();
+      })
+      .then((data) => {
+        if (!cancelled && data?.services?.length) {
+          setGroups(groupServicesPayload(data));
+        }
+      })
+      .catch(() => {
+        // Keep fallback on failure — no action needed.
+      });
+    return () => { cancelled = true; };
+  }, []);
+
+  return groups;
+}
+
+function useAllServices(groups) {
+  return useMemo(() => groups.flatMap((g) => g.services), [groups]);
+}
+
+function ServiceMultiSelect({ selectedServices, onChange, serviceGroups, allServices }) {
   const [open, setOpen] = useState(false);
   const containerRef = useRef(null);
   const close = useCallback(() => setOpen(false), []);
@@ -77,7 +152,7 @@ function ServiceMultiSelect({ selectedServices, onChange }) {
     );
   }, [selectedServices, onChange]);
 
-  const selectAll = useCallback(() => onChange(ALL_SERVICES.map((s) => s.value)), [onChange]);
+  const selectAll = useCallback(() => onChange(allServices.map((s) => s.value)), [onChange, allServices]);
   const clearAll = useCallback(() => onChange([]), [onChange]);
 
   const count = selectedServices.length;
@@ -105,7 +180,7 @@ function ServiceMultiSelect({ selectedServices, onChange }) {
           {count === 0
             ? "Select services…"
             : count <= 2
-            ? selectedServices.map((v) => ALL_SERVICES.find((s) => s.value === v)?.label || v).join(", ")
+            ? selectedServices.map((v) => allServices.find((s) => s.value === v)?.label || v).join(", ")
             : `${count} services`}
         </span>
         <span className="svc-select-caret">{open ? "▲" : "▼"}</span>
@@ -116,11 +191,11 @@ function ServiceMultiSelect({ selectedServices, onChange }) {
           <div className="svc-select-actions">
             <button className="svc-select-action-btn" onClick={selectAll}>All</button>
             <button className="svc-select-action-btn" onClick={clearAll}>None</button>
-            <span className="svc-select-count">{count} / {ALL_SERVICES.length} selected</span>
+            <span className="svc-select-count">{count} / {allServices.length} selected</span>
           </div>
 
           <div className="svc-select-list">
-            {AWS_SERVICE_GROUPS.map((group) => (
+            {serviceGroups.map((group) => (
               <div key={group.label} className="svc-select-group">
                 <div className="svc-select-group-label">{group.label}</div>
                 {group.services.map((svc) => {
@@ -178,6 +253,9 @@ export function TopBar({
   onScanByTags,
   tagScanLoading,
 }) {
+  const serviceGroups = useServiceGroups();
+  const allServices = useAllServices(serviceGroups);
+
   return (
     <header className="topbar-shell">
       <div className="topbar-left">
@@ -239,15 +317,14 @@ export function TopBar({
 
         {/* SERVICES mode controls */}
         {scanFilterMode !== "tags" && (
-          <>
-            <ServiceMultiSelect selectedServices={selectedServices} onChange={onServicesChange} />
-
-            <select className="topbar-compact-select" value={scanMode} onChange={(event) => onScanModeChange(event.target.value)}>
-              <option value="quick">Quick</option>
-              <option value="deep">Deep</option>
-            </select>
-          </>
+          <ServiceMultiSelect selectedServices={selectedServices} onChange={onServicesChange} serviceGroups={serviceGroups} allServices={allServices} />
         )}
+
+        {/* Scan depth selector — visible in both modes */}
+        <select className="topbar-compact-select" value={scanMode} onChange={(event) => onScanModeChange(event.target.value)}>
+          <option value="quick">Quick</option>
+          <option value="deep">Deep</option>
+        </select>
 
         {/* TAGS mode controls */}
         {scanFilterMode === "tags" && tagDiscovery && (
@@ -257,10 +334,11 @@ export function TopBar({
             tagKeysError={tagDiscovery.tagKeysError}
             selectedTagKeys={tagDiscovery.selectedTagKeys}
             onToggleTagKey={tagDiscovery.toggleTagKey}
-            tagValues={tagDiscovery.tagValues}
-            tagValuesLoading={tagDiscovery.tagValuesLoading}
-            selectedTagValues={tagDiscovery.selectedTagValues}
+            tagValuesByKey={tagDiscovery.tagValuesByKey}
+            valuesLoadingKeys={tagDiscovery.valuesLoadingKeys}
+            selectedValuesByKey={tagDiscovery.selectedValuesByKey}
             onToggleTagValue={tagDiscovery.toggleTagValue}
+            hasSelectedValues={tagDiscovery.hasSelectedValues}
             onApplyTagFilter={tagDiscovery.addTagFilter}
             activeTagFilters={tagDiscovery.activeTagFilters}
             onRemoveTagFilter={tagDiscovery.removeTagFilter}
@@ -296,13 +374,22 @@ export function TopBar({
             {jobStatus?.cancellation_requested ? "STOPPING..." : "STOP SCAN"}
           </button>
         ) : scanFilterMode === "tags" ? (
-          <button
-            className="topbar-primary-btn topbar-primary-btn--tags"
-            onClick={onScanByTags}
-            disabled={!tagDiscovery || tagDiscovery.activeTagFilters.length === 0 || tagScanLoading}
-          >
-            {tagScanLoading ? "DISCOVERING..." : "SCAN BY TAGS"}
-          </button>
+          <>
+            {tagDiscovery?.discoveredServices?.length > 0 && !tagScanLoading && (
+              <span className="topbar-discovered-hint" title={tagDiscovery.discoveredServices.join(", ")}>
+                {tagDiscovery.discoveredServices.length} services found
+              </span>
+            )}
+            <button
+              className="topbar-primary-btn topbar-primary-btn--tags"
+              onClick={onScanByTags}
+              disabled={!tagDiscovery || tagDiscovery.activeTagFilters.length === 0 || tagScanLoading}
+            >
+              {tagScanLoading ? "DISCOVERING..." : "SCAN BY TAGS"}
+            </button>
+          </>
+        ) : tagScanLoading ? (
+          <button className="topbar-primary-btn" disabled>DISCOVERING...</button>
         ) : (
           <button className="topbar-primary-btn" onClick={onRunScan} disabled={selectedServices.length === 0}>
             SCAN AWS

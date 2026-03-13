@@ -81,7 +81,15 @@ cloudwire/                        # Python package (the distributable unit)
 └── app/                        # FastAPI backend
     ├── main.py                 # App factory, API routes (/api/*), static serving
     ├── models.py               # Pydantic request/response models
-    ├── scanner.py              # boto3 AWS scanner — one function per service
+    ├── services.py             # Canonical service registry — single source of truth
+    ├── scanner.py              # Scan orchestrator, shared helpers, mixin composition
+    ├── scanners/               # Per-service scanner modules (mixin classes)
+    │   ├── _utils.py           # Shared constants (ARN pattern, env var conventions)
+    │   ├── apigateway.py       # REST + HTTP APIs, integrations, authorizers
+    │   ├── lambda_.py          # Functions, event sources, IAM policy inference
+    │   ├── vpc.py              # VPCs, subnets, SGs, IGWs, NATs, route tables
+    │   ├── glue.py             # Jobs, crawlers, triggers
+    │   └── ...                 # 16 more service scanners (one per AWS service)
     ├── scan_jobs.py            # Async job store with progress tracking
     └── graph_store.py          # networkx graph with thread-safe mutations
 
@@ -90,10 +98,13 @@ frontend/                       # React + Vite source (compiled into cloudwire/s
 │   ├── pages/CloudWirePage.jsx # Main page — orchestrates all state
 │   ├── components/
 │   │   ├── graph/              # GraphCanvas, GraphNode, GraphEdge, Minimap, Legend
-│   │   └── layout/             # TopBar, ServiceSidebar, InspectorPanel, TagFilterBar
+│   │   ├── layout/             # TopBar, ServiceSidebar, InspectorPanel, TagFilterBar
+│   │   └── ErrorBoundary.jsx   # React error boundary for graceful pane crashes
 │   ├── hooks/
 │   │   ├── useScanPolling.js   # Scan lifecycle, polling, graph data state
 │   │   ├── useTagDiscovery.js  # Tag-based resource discovery
+│   │   ├── useGraphPipeline.js # Graph filtering, clustering, layout pipeline
+│   │   ├── usePathFinder.js    # Shortest-path mode state management
 │   │   ├── useClickOutside.js  # Shared click-outside hook
 │   │   └── useGraphViewport.js # Pan/zoom viewport state
 │   ├── lib/
@@ -147,7 +158,7 @@ This starts the FastAPI backend on `:8000` (with `--reload`) and the Vite dev se
 
 | Area | Where to edit |
 |------|--------------|
-| Add a new AWS service scanner | `cloudwire/app/scanner.py` → add a `_scan_<service>` method and register it in `self.service_scanners` |
+| Add a new AWS service scanner | `cloudwire/app/scanners/` → create a mixin class, import it in `scanner.py`, add to the class bases and `service_scanners` dict |
 | Change graph layout | `frontend/src/lib/graphTransforms.js` |
 | Add a new UI component | `frontend/src/components/` |
 | Change API routes | `cloudwire/app/main.py` — all routes are under the `/api` prefix |

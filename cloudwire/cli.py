@@ -126,6 +126,14 @@ def main(port: int, host: str, profile: str | None, region: str, no_browser: boo
     click.echo("")
     click.echo(f"  cloudwire {__version__}")
     _print_update_hint(__version__, _update_result)
+    if host not in ("127.0.0.1", "localhost", "::1"):
+        click.secho(
+            f"  ⚠ WARNING: Binding to {host} — CloudWire has no authentication.\n"
+            f"    Any client that can reach this port gets full access to your AWS\n"
+            f"    account topology and can trigger scans. Only use on trusted networks.",
+            fg="yellow",
+            err=True,
+        )
     click.echo(f"  Running at  →  {url}")
     click.echo("  Press Ctrl+C to stop.\n")
 

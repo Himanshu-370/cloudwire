@@ -1,10 +1,11 @@
-import React, { useCallback } from "react";
+import React, { useCallback, useState } from "react";
 import { getServiceVisual } from "../../lib/serviceVisuals.jsx";
 
 const MINI_W = 180;
 const MINI_H = 110;
 
 export function Minimap({ nodes, viewport, containerRef, onPan }) {
+  const [collapsed, setCollapsed] = useState(false);
   const containerWidth = containerRef?.current?.clientWidth || 800;
   const containerHeight = containerRef?.current?.clientHeight || 600;
 
@@ -12,10 +13,11 @@ export function Minimap({ nodes, viewport, containerRef, onPan }) {
 
   let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
   for (const n of nodes) {
-    if (n.position.x < minX) minX = n.position.x;
-    if (n.position.x > maxX) maxX = n.position.x;
-    if (n.position.y < minY) minY = n.position.y;
-    if (n.position.y > maxY) maxY = n.position.y;
+    const p = n.position || { x: 0, y: 0 };
+    if (p.x < minX) minX = p.x;
+    if (p.x > maxX) maxX = p.x;
+    if (p.y < minY) minY = p.y;
+    if (p.y > maxY) maxY = p.y;
   }
   minX -= 80; maxX += 80; minY -= 80; maxY += 80;
   const gW = Math.max(1, maxX - minX);
@@ -49,28 +51,38 @@ export function Minimap({ nodes, viewport, containerRef, onPan }) {
 
   return (
     <div className="minimap-shell">
-      <div className="minimap-label">OVERVIEW</div>
-      <svg width={MINI_W} height={MINI_H} className="minimap-svg" onClick={handleClick}>
-        {nodes.map((node) => {
-          const visual = getServiceVisual(node.service);
-          const pos = toMini(node.position.x, node.position.y);
-          const r = node.type === "cluster" ? 4 : 2;
-          return (
-            <circle key={node.id} cx={pos.x} cy={pos.y} r={r} fill={visual.color} opacity={0.65} />
-          );
-        })}
-        <rect
-          x={Math.max(0, vpMini.x)}
-          y={Math.max(0, vpMini.y)}
-          width={Math.min(MINI_W - Math.max(0, vpMini.x), vpW)}
-          height={Math.min(MINI_H - Math.max(0, vpMini.y), vpH)}
-          fill="rgba(255,153,0,0.07)"
-          stroke="#ff9900"
-          strokeWidth="0.8"
-          strokeOpacity="0.6"
-          style={{ pointerEvents: "none" }}
-        />
-      </svg>
+      <button
+        className="minimap-header"
+        onClick={() => setCollapsed((v) => !v)}
+        title={collapsed ? "Expand overview" : "Collapse overview"}
+      >
+        <span className="minimap-label">OVERVIEW</span>
+        <span className="minimap-caret">{collapsed ? "▲" : "▼"}</span>
+      </button>
+      {!collapsed && (
+        <svg width={MINI_W} height={MINI_H} className="minimap-svg" onClick={handleClick}>
+          {nodes.map((node) => {
+            const visual = getServiceVisual(node.service);
+            const np = node.position || { x: 0, y: 0 };
+            const pos = toMini(np.x, np.y);
+            const r = (node.type === "cluster" && (node.id.startsWith("cluster:") || node.id.startsWith("collapsed:"))) ? 4 : 2;
+            return (
+              <circle key={node.id} cx={pos.x} cy={pos.y} r={r} fill={visual.color} opacity={0.65} />
+            );
+          })}
+          <rect
+            x={Math.max(0, vpMini.x)}
+            y={Math.max(0, vpMini.y)}
+            width={Math.min(MINI_W - Math.max(0, vpMini.x), vpW)}
+            height={Math.min(MINI_H - Math.max(0, vpMini.y), vpH)}
+            fill="rgba(255,153,0,0.07)"
+            stroke="#ff9900"
+            strokeWidth="0.8"
+            strokeOpacity="0.6"
+            style={{ pointerEvents: "none" }}
+          />
+        </svg>
+      )}
     </div>
   );
 }

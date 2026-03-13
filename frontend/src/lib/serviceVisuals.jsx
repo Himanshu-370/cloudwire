@@ -17,10 +17,27 @@ export function normalizeServiceName(service) {
   const aliases = {
     "api-gateway": "apigateway",
     apigw: "apigateway",
+    "execute-api": "apigateway",
     events: "eventbridge",
     "event-bridge": "eventbridge",
+    states: "stepfunctions",
     "cognito-idp": "cognito",
     "elasticloadbalancing": "elb",
+    "rds-data": "rds",
+    "redshift-data": "redshift",
+    monitoring: "cloudwatch",
+    es: "opensearch",
+    aoss: "opensearch",
+    waf: "wafv2",
+    "waf-regional": "wafv2",
+    neptune: "neptune-db",
+    inspector: "inspector2",
+    msk: "kafka",
+    "emr-serverless": "emr",
+    "elastic-beanstalk": "elasticbeanstalk",
+    "elasticfilesystem": "efs",
+    amazonmq: "mq",
+    "certificate-manager": "acm",
   };
   return aliases[key] || key;
 }
@@ -266,6 +283,181 @@ export function createServiceIcon(service, color, type) {
         </>,
         color
       );
+    case "emr":
+      return wrapIcon(
+        <>
+          <circle cx="9" cy="9" r="6" />
+          <circle cx="9" cy="9" r="2.5" />
+          <path d="M6 4.5L12 13.5" />
+          <path d="M12 4.5L6 13.5" />
+        </>,
+        color
+      );
+    case "opensearch":
+      return wrapIcon(
+        <>
+          <circle cx="8" cy="8" r="4.5" />
+          <path d="M11.5 11.5l3 3" />
+        </>,
+        color
+      );
+    case "efs":
+      return wrapIcon(
+        <>
+          <path d="M3 5h12v8H3z" />
+          <path d="M3 9h12" />
+          <path d="M6 5v8" />
+        </>,
+        color
+      );
+    case "mq":
+      return wrapIcon(
+        <>
+          <rect x="3" y="4" width="12" height="10" rx="1.5" />
+          <path d="M6 7v4" />
+          <path d="M9 7v4" />
+          <path d="M12 7v4" />
+        </>,
+        color
+      );
+    case "eks":
+      return wrapIcon(
+        <>
+          <circle cx="9" cy="9" r="6" />
+          <path d="M9 3v12" />
+          <path d="M3.5 6l11 6" />
+          <path d="M3.5 12l11-6" />
+        </>,
+        color
+      );
+    case "ecr":
+      return wrapIcon(
+        <>
+          <rect x="3" y="4" width="12" height="10" rx="2" />
+          <path d="M7 7l-2 2 2 2" />
+          <path d="M11 7l2 2-2 2" />
+        </>,
+        color
+      );
+    case "batch":
+      return wrapIcon(
+        <>
+          <rect x="3" y="3" width="5" height="5" rx="0.8" />
+          <rect x="10" y="3" width="5" height="5" rx="0.8" />
+          <rect x="3" y="10" width="5" height="5" rx="0.8" />
+          <rect x="10" y="10" width="5" height="5" rx="0.8" />
+        </>,
+        color
+      );
+    case "elasticbeanstalk":
+      return wrapIcon(
+        <>
+          <path d="M9 3v12" />
+          <path d="M5 6h8" />
+          <path d="M4 9h10" />
+          <path d="M5 12h8" />
+        </>,
+        color
+      );
+    case "kafka":
+      return wrapIcon(
+        <>
+          <circle cx="5" cy="5" r="2" />
+          <circle cx="13" cy="5" r="2" />
+          <circle cx="9" cy="13" r="2" />
+          <path d="M7 5h4" />
+          <path d="M6.5 6.5L8 11.5" />
+          <path d="M11.5 6.5L10 11.5" />
+        </>,
+        color
+      );
+    case "firehose":
+      return wrapIcon(
+        <>
+          <path d="M4 5h10l-3 4 3 4H4" />
+        </>,
+        color
+      );
+    case "wafv2":
+      return wrapIcon(
+        <>
+          <path d="M9 2L3 5v5c0 3.3 2.6 6.2 6 7 3.4-.8 6-3.7 6-7V5L9 2z" />
+          <path d="M7 9l2 2 3-4" />
+        </>,
+        color
+      );
+    case "guardduty":
+      return wrapIcon(
+        <>
+          <circle cx="9" cy="8" r="5" />
+          <path d="M9 5v4" />
+          <circle cx="9" cy="11" r="0.8" fill={color} />
+        </>,
+        color
+      );
+    case "cloudwatch":
+      return wrapIcon(
+        <>
+          <circle cx="9" cy="9" r="6" />
+          <path d="M9 5v4h3" />
+        </>,
+        color
+      );
+    case "cloudtrail":
+      return wrapIcon(
+        <>
+          <path d="M3 13l4-5 3 3 4-8" />
+          <circle cx="14" cy="3" r="1.5" />
+        </>,
+        color
+      );
+    case "cloudformation":
+      return wrapIcon(
+        <>
+          <rect x="3" y="3" width="12" height="12" rx="1.5" />
+          <path d="M6 7l3 2-3 2" />
+          <path d="M10 11h3" />
+        </>,
+        color
+      );
+    case "athena":
+      return wrapIcon(
+        <>
+          <path d="M4 3h10l-2 12H6L4 3z" />
+          <path d="M5 7h8" />
+        </>,
+        color
+      );
+    case "sagemaker":
+      return wrapIcon(
+        <>
+          <circle cx="9" cy="4" r="2.5" />
+          <path d="M4 14c0-2.8 2.2-5 5-5s5 2.2 5 5" />
+          <circle cx="14" cy="8" r="1.5" />
+          <path d="M11 4.5l1.5 2.5" />
+        </>,
+        color
+      );
+    case "codepipeline":
+      return wrapIcon(
+        <>
+          <circle cx="5" cy="4" r="2" />
+          <circle cx="13" cy="9" r="2" />
+          <circle cx="5" cy="14" r="2" />
+          <path d="M7 4h4l2 5" />
+          <path d="M11 9l-4 5" />
+        </>,
+        color
+      );
+    case "codebuild":
+      return wrapIcon(
+        <>
+          <rect x="3" y="3" width="12" height="12" rx="1.5" />
+          <path d="M6 7l2 2-2 2" />
+          <path d="M10 11h3" />
+        </>,
+        color
+      );
     default:
       return wrapIcon(
         <>
@@ -301,6 +493,51 @@ export const SERVICE_VISUALS = {
   kms: { label: "KMS", color: "#DD344C", accent: "#ff8394", role: "unknown", description: "Key management — creates and controls encryption keys for your data" },
   iam: { label: "IAM", color: "#DD344C", accent: "#ff8394", role: "unknown", description: "Identity and access management — controls who can access what resources" },
   vpc: { label: "VPC Network", color: "#248814", accent: "#5cc044", role: "network", description: "Network topology — VPCs, subnets, security groups, gateways, and routing" },
+  // Compute / Containers
+  eks: { label: "EKS", color: "#FF9900", accent: "#ffd27a", role: "processor", description: "Managed Kubernetes — runs containerized apps on Kubernetes clusters" },
+  ecr: { label: "ECR", color: "#FF9900", accent: "#ffd27a", role: "storage", description: "Container registry — stores, manages, and deploys Docker container images" },
+  batch: { label: "Batch", color: "#FF9900", accent: "#ffd27a", role: "processor", description: "Batch computing — runs batch jobs at any scale on managed infrastructure" },
+  elasticbeanstalk: { label: "Elastic Beanstalk", color: "#FF9900", accent: "#ffd27a", role: "processor", description: "App platform — deploys and scales web apps with auto-managed infrastructure" },
+  apprunner: { label: "App Runner", color: "#FF9900", accent: "#ffd27a", role: "processor", description: "Container service — deploys containerized web apps from source or image" },
+  // Storage
+  efs: { label: "EFS", color: "#7B2D8B", accent: "#c885da", role: "storage", description: "Elastic file system — serverless shared file storage for EC2 and containers" },
+  backup: { label: "AWS Backup", color: "#7B2D8B", accent: "#c885da", role: "storage", description: "Backup service — centralized backup management across AWS services" },
+  // Database
+  opensearch: { label: "OpenSearch", color: "#3F8624", accent: "#8ed66d", role: "storage", description: "Search and analytics — managed OpenSearch/Elasticsearch clusters" },
+  "neptune-db": { label: "Neptune", color: "#3F8624", accent: "#8ed66d", role: "storage", description: "Graph database — managed graph DB for highly connected datasets" },
+  dax: { label: "DAX", color: "#3F8624", accent: "#8ed66d", role: "storage", description: "DynamoDB Accelerator — in-memory cache for DynamoDB microsecond reads" },
+  // Networking
+  acm: { label: "ACM", color: "#00E7FF", accent: "#66f0ff", role: "network", description: "Certificate Manager — provisions and manages SSL/TLS certificates" },
+  // Monitoring / Management
+  cloudwatch: { label: "CloudWatch", color: "#00B4E0", accent: "#66d4f0", role: "unknown", description: "Monitoring — collects metrics, logs, and alarms for AWS resources" },
+  logs: { label: "CloudWatch Logs", color: "#00B4E0", accent: "#66d4f0", role: "unknown", description: "Log management — ingests, stores, and queries application and system logs" },
+  cloudformation: { label: "CloudFormation", color: "#00B4E0", accent: "#66d4f0", role: "unknown", description: "Infrastructure as code — provisions AWS resources from declarative templates" },
+  cloudtrail: { label: "CloudTrail", color: "#DD344C", accent: "#ff8394", role: "unknown", description: "Audit logging — records API calls and account activity for governance" },
+  ssm: { label: "Systems Manager", color: "#00B4E0", accent: "#66d4f0", role: "unknown", description: "Operations hub — manages EC2 instances, patching, parameters, and automation" },
+  config: { label: "AWS Config", color: "#00B4E0", accent: "#66d4f0", role: "unknown", description: "Configuration tracking — records and evaluates AWS resource configurations" },
+  // Security
+  wafv2: { label: "WAF", color: "#DD344C", accent: "#ff8394", role: "unknown", description: "Web application firewall — protects apps from common web exploits" },
+  guardduty: { label: "GuardDuty", color: "#DD344C", accent: "#ff8394", role: "unknown", description: "Threat detection — continuously monitors for malicious activity and anomalies" },
+  inspector2: { label: "Inspector", color: "#DD344C", accent: "#ff8394", role: "unknown", description: "Vulnerability scanning — automated security assessments of workloads" },
+  // Analytics
+  athena: { label: "Athena", color: "#4053D6", accent: "#8f9fff", role: "storage", description: "SQL query engine — serverless interactive queries on S3 data" },
+  kafka: { label: "MSK", color: "#C766D4", accent: "#dfa0e8", role: "queue", description: "Managed Kafka — fully managed Apache Kafka for streaming data" },
+  firehose: { label: "Kinesis Firehose", color: "#C766D4", accent: "#dfa0e8", role: "queue", description: "Data delivery — loads streaming data into S3, Redshift, OpenSearch" },
+  emr: { label: "EMR", color: "#4053D6", accent: "#8f9fff", role: "processor", description: "Big data processing — managed Hadoop/Spark clusters for data processing" },
+  quicksight: { label: "QuickSight", color: "#4053D6", accent: "#8f9fff", role: "unknown", description: "BI dashboards — serverless business intelligence and visualizations" },
+  // Developer Tools
+  codepipeline: { label: "CodePipeline", color: "#00B4E0", accent: "#66d4f0", role: "processor", description: "CI/CD pipeline — automates build, test, and deploy workflows" },
+  codebuild: { label: "CodeBuild", color: "#00B4E0", accent: "#66d4f0", role: "processor", description: "Build service — compiles source code, runs tests, produces artifacts" },
+  codecommit: { label: "CodeCommit", color: "#00B4E0", accent: "#66d4f0", role: "storage", description: "Git repository — managed private Git repos in AWS" },
+  codedeploy: { label: "CodeDeploy", color: "#00B4E0", accent: "#66d4f0", role: "processor", description: "Deployment service — automates code deployments to EC2, Lambda, ECS" },
+  // Machine Learning
+  sagemaker: { label: "SageMaker", color: "#6366F1", accent: "#a5a7fa", role: "processor", description: "ML platform — builds, trains, and deploys machine learning models" },
+  bedrock: { label: "Bedrock", color: "#6366F1", accent: "#a5a7fa", role: "processor", description: "GenAI service — access to foundation models for generative AI apps" },
+  // Application Integration
+  scheduler: { label: "EventBridge Scheduler", color: "#E7157B", accent: "#ff63b3", role: "trigger", description: "Task scheduler — creates scheduled one-time or recurring invocations" },
+  pipes: { label: "EventBridge Pipes", color: "#E7157B", accent: "#ff63b3", role: "trigger", description: "Event pipes — point-to-point integrations between event sources and targets" },
+  mq: { label: "Amazon MQ", color: "#FF4F8B", accent: "#ff8ab1", role: "queue", description: "Message broker — managed ActiveMQ and RabbitMQ for legacy messaging" },
+  // Fallback
   unknown: { label: "AWS Resource", color: "#6f8596", accent: "#a8bac7", role: "unknown", description: "AWS resource — part of your cloud architecture" },
 };
 

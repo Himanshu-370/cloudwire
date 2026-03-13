@@ -1,128 +1,164 @@
-import React from "react";
+import React, { useState } from "react";
 import { createServiceIcon, getServiceVisual } from "../../lib/serviceVisuals.jsx";
 
+const STATUS_HEALTHY = new Set(["active", "running", "available", "deployed", "enabled", "in-service", "ready"]);
+const STATUS_TRANSITIONAL = new Set(["updating", "pending", "creating", "modifying", "backing-up", "starting", "stopping", "deleting", "inactive", "provisioning"]);
+
+const SHOWN_IN_HEADER = new Set(["id", "service", "type", "label", "region"]);
+const FRIENDLY_LABELS = {
+  arn: "ARN", state: "State", status: "Status", runtime: "Runtime",
+  memory_size: "Memory (MB)", timeout: "Timeout (s)", handler: "Handler",
+  code_size: "Code Size", last_modified: "Last Modified",
+  engine: "Engine", engine_version: "Engine Version", node_type: "Node Type",
+  table_size_bytes: "Table Size", item_count: "Item Count",
+  billing_mode: "Billing Mode", domain: "Domain", vpc_id: "VPC",
+  subnet_id: "Subnet", instance_type: "Instance Type", db_name: "Database",
+  num_nodes: "Node Count", private_zone: "Private Zone", record_count: "Records",
+  trigger_type: "Trigger Type", event_pattern: "Event Pattern",
+  schedule_expression: "Schedule", phantom: "Discovered via",
+};
+
+function friendlyKey(key) {
+  if (FRIENDLY_LABELS[key]) return FRIENDLY_LABELS[key];
+  return key.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
+function formatValue(value) {
+  if (typeof value === "object" && value !== null) {
+    const str = JSON.stringify(value);
+    return str.length > 80 ? str.slice(0, 78) + "…" : str;
+  }
+  const str = String(value);
+  return str.length > 120 ? str.slice(0, 118) + "…" : str;
+}
+
+function ConnectionGroup({ label, edges, nodeMap, currentVisual, onJumpToNode }) {
+  if (edges.length === 0) return null;
+  const isOutgoing = label === "Out";
+  return (
+    <div className="inspector-conn-group">
+      <div className="inspector-conn-group-label">{label} ({edges.length})</div>
+      {edges.map((edge) => {
+        const peerId = isOutgoing ? edge.target : edge.source;
+        const peer = nodeMap.get(peerId);
+        const peerVisual = peer ? getServiceVisual(peer.service) : null;
+        const rel = edge.relationship || "depends_on";
+        return (
+          <button
+            key={edge.id}
+            className="inspector-connection-row"
+            onClick={() => onJumpToNode(peerId)}
+            title={rel}
+          >
+            <span className="inspector-connection-arrow" style={{ color: isOutgoing ? currentVisual.color : "#5a7a8a" }}>
+              {isOutgoing ? "→" : "←"}
+            </span>
+            {peerVisual && (
+              <span className="inspector-connection-icon" style={{ color: peerVisual.color }}>
+                {createServiceIcon(peer.service, peerVisual.color)}
+              </span>
+            )}
+            <span className="inspector-conn-peer-name">{peer?.label || peerId}</span>
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
 export function InspectorPanel({ resourceDetails, allNodes, onClose, onJumpToNode }) {
+  const [metaExpanded, setMetaExpanded] = useState(false);
+
   if (!resourceDetails) return null;
 
-  const visual = getServiceVisual(resourceDetails.node.service);
-  const rawState = String(resourceDetails.node.state || resourceDetails.node.status || "").toLowerCase();
-  const statusLabel = rawState.toUpperCase() || "UNKNOWN";
-  const STATUS_HEALTHY = ["active", "running", "available", "deployed", "enabled", "in-service", "ready"];
-  const STATUS_TRANSITIONAL = ["updating", "pending", "creating", "modifying", "backing-up", "starting", "stopping", "deleting", "inactive", "provisioning"];
-  const statusColor = STATUS_HEALTHY.includes(rawState)
-    ? "#00FF88"
-    : STATUS_TRANSITIONAL.includes(rawState)
-    ? "#FFB84D"
+  const { node, outgoing, incoming } = resourceDetails;
+  const visual = getServiceVisual(node.service);
+  const rawState = String(node.state || node.status || "").toLowerCase();
+  const statusLabel = rawState || "unknown";
+  const statusColor = STATUS_HEALTHY.has(rawState)
+    ? "#00CC6A"
+    : STATUS_TRANSITIONAL.has(rawState)
+    ? "#FF9900"
     : rawState
     ? "#FF4444"
-    : "#5a7a8a"; // neutral for unknown
+    : "#3a5a6a";
 
-  const SHOWN_IN_HEADER = new Set(["id", "service", "type", "label", "region"]);
-  const FRIENDLY_LABELS = {
-    arn: "ARN", state: "State", status: "Status", runtime: "Runtime",
-    memory_size: "Memory (MB)", timeout: "Timeout (s)", handler: "Handler",
-    code_size: "Code Size", last_modified: "Last Modified",
-    engine: "Engine", engine_version: "Engine Version", node_type: "Node Type",
-    table_size_bytes: "Table Size", item_count: "Item Count",
-    billing_mode: "Billing Mode", domain: "Domain", vpc_id: "VPC",
-    subnet_id: "Subnet", instance_type: "Instance Type", db_name: "Database",
-    num_nodes: "Node Count", private_zone: "Private Zone", record_count: "Records",
-    trigger_type: "Trigger Type", event_pattern: "Event Pattern",
-    schedule_expression: "Schedule", phantom: "Discovered via",
-  };
-  function friendlyKey(key) {
-    if (FRIENDLY_LABELS[key]) return FRIENDLY_LABELS[key];
-    return key.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
-  }
   const nodeMap = new Map((allNodes || []).map((n) => [n.id, n]));
-  const metaEntries = Object.entries(resourceDetails.node).filter(
+  const metaEntries = Object.entries(node).filter(
     ([key, value]) => !SHOWN_IN_HEADER.has(key) && value !== null && value !== undefined
   );
 
+  const PREVIEW_COUNT = 5;
+  const visibleMeta = metaExpanded ? metaEntries : metaEntries.slice(0, PREVIEW_COUNT);
+  const hiddenCount = metaEntries.length - PREVIEW_COUNT;
+
+  const totalConnections = outgoing.length + incoming.length;
+
   return (
     <aside className="inspector-shell">
+      {/* ── Header ── */}
       <div className="inspector-header">
-        <div>
-          <div className="inspector-kicker">{resourceDetails.node.type || visual.label}</div>
-          <h2>{resourceDetails.node.label || resourceDetails.node.id}</h2>
+        <div className="inspector-header-identity">
+          <span className="inspector-header-icon" style={{ color: visual.color }}>
+            {createServiceIcon(node.service, visual.color)}
+          </span>
+          <div className="inspector-header-text">
+            <div className="inspector-kicker">{node.type || visual.label}</div>
+            <h2 className="inspector-title">{node.label || node.id}</h2>
+          </div>
         </div>
-        <button onClick={onClose}>CLOSE PANEL</button>
+        <button className="inspector-close-btn" onClick={onClose} aria-label="Close panel">✕</button>
       </div>
 
-      <div className="inspector-status-row">
-        <div className="inspector-status-pill" style={{ borderColor: `${statusColor}44` }}>
+      {/* ── Status + Region row ── */}
+      <div className="inspector-meta-strip">
+        <span className="inspector-status-pill" style={{ borderColor: `${statusColor}55`, color: statusColor }}>
           <span className="inspector-status-dot" style={{ background: statusColor }} />
-          <span style={{ color: statusColor }}>{statusLabel}</span>
-        </div>
-      </div>
-
-      <div className="inspector-identity">
-        <span className="inspector-icon" style={{ color: visual.color, borderColor: `${visual.color}55` }}>
-          {createServiceIcon(resourceDetails.node.service, visual.color)}
+          {statusLabel}
         </span>
-        <div>
-          <div>{resourceDetails.node.region || "global"}</div>
-          <div className="inspector-id">{resourceDetails.node.id}</div>
-        </div>
+        <span className="inspector-meta-strip-region">{node.region || "global"}</span>
       </div>
 
-      <div className="inspector-accent" style={{ background: `linear-gradient(90deg, ${visual.color}, transparent)` }} />
+      {/* ── Resource ID ── */}
+      <div className="inspector-resource-id" title={node.id}>{node.id}</div>
 
-      <section>
-        <div className="sidebar-section-title">Resource Metadata</div>
-        <div className="inspector-meta-list">
-          {metaEntries.map(([key, value]) => (
-            <div key={key} className="inspector-meta-row">
-              <span>{friendlyKey(key)}</span>
-              <strong>{typeof value === "object" ? JSON.stringify(value) : String(value)}</strong>
-            </div>
-          ))}
-        </div>
-      </section>
+      {/* ── Color accent ── */}
+      <div className="inspector-accent" style={{ background: `linear-gradient(90deg, ${visual.color}66, transparent)` }} />
 
-      <section>
-        <div className="sidebar-section-title">Connections ({resourceDetails.outgoing.length + resourceDetails.incoming.length})</div>
-        <div className="inspector-connection-list">
-          {resourceDetails.outgoing.map((edge) => {
-              const target = nodeMap.get(edge.target);
-              const targetVisual = target ? getServiceVisual(target.service) : null;
-              return (
-                <button key={edge.id} className="inspector-connection-row" onClick={() => onJumpToNode(edge.target)}>
-                  <span className="inspector-connection-arrow" style={{ color: visual.color }}>→</span>
-                  {targetVisual && (
-                    <span className="inspector-connection-icon" style={{ color: targetVisual.color }}>
-                      {createServiceIcon(target.service, targetVisual.color)}
-                    </span>
-                  )}
-                  <div>
-                    <strong>{target?.label || edge.target}</strong>
-                    <span>{edge.relationship || "depends_on"}</span>
-                  </div>
-                </button>
-              );
-            })}
-          {resourceDetails.incoming.map((edge) => {
-              const source = nodeMap.get(edge.source);
-              const sourceVisual = source ? getServiceVisual(source.service) : null;
-              return (
-                <button key={edge.id} className="inspector-connection-row" onClick={() => onJumpToNode(edge.source)}>
-                  <span className="inspector-connection-arrow" style={{ color: visual.color }}>←</span>
-                  {sourceVisual && (
-                    <span className="inspector-connection-icon" style={{ color: sourceVisual.color }}>
-                      {createServiceIcon(source.service, sourceVisual.color)}
-                    </span>
-                  )}
-                  <div>
-                    <strong>{source?.label || edge.source}</strong>
-                    <span>{edge.relationship || "depends_on"}</span>
-                  </div>
-                </button>
-              );
-            })}
-          {resourceDetails.outgoing.length === 0 && resourceDetails.incoming.length === 0 && (
-            <div className="inspector-empty">No relationships.</div>
+      {/* ── Metadata ── */}
+      {metaEntries.length > 0 && (
+        <section className="inspector-section">
+          <div className="inspector-section-title">Details</div>
+          <div className="inspector-meta-list">
+            {visibleMeta.map(([key, value]) => (
+              <div key={key} className="inspector-meta-row">
+                <span className="inspector-meta-key">{friendlyKey(key)}</span>
+                <span className="inspector-meta-val">{formatValue(value)}</span>
+              </div>
+            ))}
+          </div>
+          {metaEntries.length > PREVIEW_COUNT && (
+            <button className="inspector-expand-btn" onClick={() => setMetaExpanded((v) => !v)}>
+              {metaExpanded ? "Show less" : `+${hiddenCount} more`}
+            </button>
           )}
+        </section>
+      )}
+
+      {/* ── Connections ── */}
+      <section className="inspector-section inspector-section-connections">
+        <div className="inspector-section-title">
+          Connections
+          {totalConnections > 0 && <span className="inspector-section-count">{totalConnections}</span>}
         </div>
+        {totalConnections === 0 ? (
+          <div className="inspector-empty">No connections.</div>
+        ) : (
+          <div className="inspector-connection-list">
+            <ConnectionGroup label="Out" edges={outgoing} nodeMap={nodeMap} currentVisual={visual} onJumpToNode={onJumpToNode} />
+            <ConnectionGroup label="In" edges={incoming} nodeMap={nodeMap} currentVisual={visual} onJumpToNode={onJumpToNode} />
+          </div>
+        )}
       </section>
     </aside>
   );
