@@ -4,13 +4,40 @@ from __future__ import annotations
 
 import os
 import socket
+import sys
 import threading
 import webbrowser
 
-import click
-import uvicorn
+_REQUIRED_PACKAGES = ["click", "uvicorn", "fastapi", "boto3", "pydantic", "networkx"]
 
-from . import __version__
+
+def _check_dependencies() -> None:
+    """Verify all required packages are importable. Print a helpful message if not."""
+    missing = []
+    for pkg in _REQUIRED_PACKAGES:
+        try:
+            __import__(pkg)
+        except ImportError:
+            missing.append(pkg)
+    if missing:
+        print(
+            f"Error: missing required packages: {', '.join(missing)}\n"
+            f"\n"
+            f"  pip install cloudwire\n"
+            f"\n"
+            f"This installs all dependencies automatically. If you installed\n"
+            f"from source, run: pip install -e .\n",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
+
+_check_dependencies()
+
+import click  # noqa: E402
+import uvicorn  # noqa: E402
+
+from . import __version__  # noqa: E402
 
 
 def _port_is_available(host: str, port: int) -> bool:
