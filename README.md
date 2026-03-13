@@ -1,8 +1,12 @@
-# Cloudwire
+# CloudWire
 
 Scan your AWS account and visualize resource dependencies as an interactive graph — directly in your browser, running entirely on your local machine.
 
 No data leaves your system. AWS credentials never leave your terminal. The graph is built locally using your existing credential chain (`~/.aws/credentials`, `aws sso login`, `saml2aws`, `aws-vault` — all work out of the box).
+
+<p align="center">
+  <img src="docs/cloudgraph.svg" alt="CloudWire — AWS infrastructure graph visualization" width="100%">
+</p>
 
 ---
 
@@ -24,7 +28,9 @@ That's it. The browser opens automatically at `http://localhost:8080`.
 - Dark hacker-aesthetic graph canvas with animated data flow
 - 24 AWS services with dedicated icons, colors, and role badges
 - Edges represent real relationships — API integrations, event triggers, IAM policy inference, env var references
-- Sequential left-to-right flow layout with START/END badges showing where data enters and exits
+- Four layout modes — Circular (default), Flow, Swimlane — switchable from the graph toolbar
+- VPC network topology with CloudMapper-style diagrams — internet anchors, SG rule edges with port labels, AZ grouping, collapsible containers
+- Tag-based scanning — discover and scan resources by AWS tags with searchable multi-select dropdowns
 - Click any node to inspect its attributes, incoming/outgoing edges, and resource-specific tooltip
 - Search, filter by service, highlight upstream/downstream blast radius, find shortest path
 - Permission errors surfaced clearly — see exactly which IAM policies are missing
@@ -57,6 +63,7 @@ That's it. The browser opens automatically at `http://localhost:8080`.
 | AppSync | Dedicated — GraphQL APIs |
 | Secrets Manager | Dedicated |
 | KMS | Dedicated |
+| VPC Network | Dedicated — VPCs, subnets, security groups, IGWs, NAT GWs, route tables; scoped to referenced VPCs |
 | ELB | Discovered via CloudFront, Route 53, ECS edges |
 | Everything else | Generic (tagged resources only) |
 
@@ -83,12 +90,14 @@ frontend/                       # React + Vite source (compiled into cloudwire/s
 │   ├── pages/CloudWirePage.jsx # Main page — orchestrates all state
 │   ├── components/
 │   │   ├── graph/              # GraphCanvas, GraphNode, GraphEdge, Minimap, Legend
-│   │   └── layout/             # TopBar, ServiceSidebar, InspectorPanel
+│   │   └── layout/             # TopBar, ServiceSidebar, InspectorPanel, TagFilterBar
 │   ├── hooks/
 │   │   ├── useScanPolling.js   # Scan lifecycle, polling, graph data state
+│   │   ├── useTagDiscovery.js  # Tag-based resource discovery
+│   │   ├── useClickOutside.js  # Shared click-outside hook
 │   │   └── useGraphViewport.js # Pan/zoom viewport state
 │   ├── lib/
-│   │   ├── graphTransforms.js  # Layout algorithms (circular, flow, swimlane)
+│   │   ├── graphTransforms.js  # Layout algorithms, annotations, container collapse
 │   │   ├── serviceVisuals.jsx  # Service icon + color map
 │   │   └── awsRegions.js       # AWS region list
 │   └── styles/graph.css        # All UI styles
