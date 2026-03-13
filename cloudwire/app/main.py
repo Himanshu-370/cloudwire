@@ -21,6 +21,7 @@ from fastapi import APIRouter, FastAPI, HTTPException, Query, Request, status
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
+from starlette.middleware.base import BaseHTTPMiddleware
 
 from .models import (
     _REGION_RE,
@@ -37,6 +38,7 @@ from .models import (
 )
 from .scan_jobs import ScanJobStore
 from .scanner import AWSGraphScanner, ScanCancelledError, ScanExecutionOptions
+from .services import get_services_payload
 
 logger = logging.getLogger(__name__)
 
@@ -110,11 +112,12 @@ def _friendly_exception_message(exc: Exception) -> str:
             return "Your AWS session has expired. Refresh credentials and try again."
         if code in {"AccessDenied", "AccessDeniedException", "UnauthorizedOperation"}:
             return "AWS access was denied for this operation. Verify the assumed role permissions."
-        message = exc.response.get("Error", {}).get("Message")
-        return message or f"AWS API request failed with {code or 'ClientError'}."
+        # Do not echo raw AWS error messages — they may contain account IDs and ARNs
+        logger.warning("AWS ClientError [%s]: %s", code, exc.response.get("Error", {}).get("Message", ""))
+        return f"AWS API request failed ({code or 'ClientError'})."
     if isinstance(exc, BotoCoreError):
         return "The AWS SDK failed to complete the request."
-    return str(exc) or "Unexpected server error."
+    return "Unexpected server error."
 
 
 def _resolve_account_id(region: str) -> str:
@@ -178,6 +181,24 @@ async def lifespan(_app: FastAPI):
 
 
 app = FastAPI(title="CloudWire API", version="0.1.0", lifespan=lifespan)
+
+
+# ---------------------------------------------------------------------------
+# Security headers middleware
+# ---------------------------------------------------------------------------
+
+class SecurityHeadersMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: Request, call_next):
+        response = await call_next(request)
+        response.headers["X-Content-Type-Options"] = "nosniff"
+        response.headers["X-Frame-Options"] = "DENY"
+        response.headers["Content-Security-Policy"] = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline';"
+        response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+        return response
+
+
+app.add_middleware(SecurityHeadersMiddleware)
+
 
 # ---------------------------------------------------------------------------
 # Exception handlers
@@ -262,6 +283,73 @@ def _service_from_arn(arn: str) -> str:
 # Scan runner (background thread)
 # ---------------------------------------------------------------------------
 
+def _services_from_tag_arns(tag_arns: List[str]) -> List[str]:
+    """Extract and normalize unique service names from a list of ARNs."""
+    seen: set = set()
+    result: List[str] = []
+    for arn in tag_arns:
+        raw = _service_from_arn(arn)
+        if not raw:
+            continue
+        canonical = normalize_service_name(raw)
+        if canonical and canonical not in seen:
+            seen.add(canonical)
+            result.append(canonical)
+    return result
+
+
+def _seed_missing_tag_arns(graph_store: "GraphStore", tag_arns: List[str], region: str) -> int:
+    """Ensure every tag-discovered ARN has a node in the graph.
+
+    Services without a dedicated scanner rely on the generic tagging-API
+    fallback, which may fail for certain service prefixes.  This function
+    creates lightweight stub nodes for any ARNs that scanners didn't cover,
+    so they survive the subsequent ``filter_by_arns`` pass and remain
+    visible in the graph.
+
+    Returns the number of newly seeded nodes.
+    """
+    # Build a set of ARNs already present in the graph (O(n) once)
+    existing_arns: set = set()
+    payload = graph_store.get_graph_payload()
+    for node in payload.get("nodes", []):
+        for field in ("arn", "real_arn"):
+            val = node.get(field)
+            if val:
+                existing_arns.add(val)
+
+    seeded = 0
+    for arn in tag_arns:
+        if arn in existing_arns:
+            continue
+
+        raw_service = _service_from_arn(arn)
+        service = normalize_service_name(raw_service) if raw_service else "unknown"
+        node_id = f"{service}:{arn}"
+
+        # Extract a human-friendly label from the ARN
+        resource_part = arn.split(":", 5)[-1] if len(arn.split(":")) >= 6 else arn
+        label = resource_part.rsplit("/", 1)[-1] if "/" in resource_part else resource_part
+
+        # Determine resource type from ARN structure
+        resource_type = ""
+        if "/" in resource_part:
+            resource_type = resource_part.split("/")[0]
+        elif ":" in resource_part:
+            resource_type = resource_part.split(":")[0]
+
+        graph_store.add_node(
+            node_id,
+            arn=arn,
+            label=label,
+            service=service,
+            type=resource_type or "resource",
+            region=region,
+        )
+        seeded += 1
+    return seeded
+
+
 def _run_scan_job(
     *,
     job_id: str,
@@ -276,6 +364,17 @@ def _run_scan_job(
         job_store.mark_cancelled(job_id)
         return
     job = job_store.get_job(job_id)
+
+    # Auto-include all services referenced in tag ARNs so no tagged resources
+    # are silently dropped when the frontend doesn't include them.
+    if tag_arns:
+        arn_services = _services_from_tag_arns(tag_arns)
+        existing = set(services)
+        for svc in arn_services:
+            if svc not in existing:
+                services.append(svc)
+                existing.add(svc)
+
     scanner = AWSGraphScanner(job.graph_store, options=options)
 
     def on_progress(event: str, service: str, services_done: int, services_total: int) -> None:
@@ -298,8 +397,14 @@ def _run_scan_job(
         if job_store.is_cancel_requested(job_id):
             job_store.mark_cancelled(job_id)
             return
-        # Post-scan ARN filtering for tag-based scans
+        # Post-scan: seed any tag-discovered ARNs that the scanners missed
+        # (e.g. services without a dedicated scanner whose generic tagging-API
+        # query failed) so they still appear in the graph.
         if tag_arns:
+            seeded = _seed_missing_tag_arns(job.graph_store, tag_arns, region)
+            if seeded:
+                logger.info("Seeded %d tag-discovered resource(s) not found by scanners", seeded)
+
             allowed = set(tag_arns)
             removed = job.graph_store.filter_by_arns(allowed)
             if removed:
@@ -327,13 +432,18 @@ def health() -> Dict[str, Any]:
     return {"service": "cloudwire", "status": "ok"}
 
 
+@api.get("/services")
+def list_services() -> Dict[str, Any]:
+    return get_services_payload()
+
+
 @api.get("/graph", response_model=GraphResponse, responses={500: {"model": APIErrorResponse}})
 def get_graph() -> Dict[str, Any]:
     return job_store.get_latest_graph_payload()
 
 
 @api.get(
-    "/resource/{resource_id}",
+    "/resource/{resource_id:path}",
     response_model=ResourceResponse,
     responses={404: {"model": APIErrorResponse}, 500: {"model": APIErrorResponse}},
 )
@@ -344,8 +454,7 @@ def get_resource(resource_id: str, job_id: Optional[str] = Query(default=None)) 
         raise APIError(
             status_code=status.HTTP_404_NOT_FOUND,
             code="resource_not_found",
-            message=f"Resource '{resource_id}' was not found in the selected graph.",
-            details={"resource_id": resource_id, "job_id": job_id},
+            message="Resource was not found in the selected graph.",
         ) from exc
 
 
@@ -490,18 +599,17 @@ def _handle_tagging_error(exc: Exception, region: str, operation: str):
         ) from exc
     if isinstance(exc, ClientError):
         aws_code = exc.response.get("Error", {}).get("Code", "")
-        aws_message = exc.response.get("Error", {}).get("Message", "")
         if aws_code in ("AccessDenied", "AccessDeniedException", "UnauthorizedAccess", "UnauthorizedOperation"):
             raise APIError(
                 status_code=status.HTTP_403_FORBIDDEN,
                 code="tags_access_denied",
-                message=f"Access denied for {operation}. Ensure the IAM role has tag:GetTagKeys, tag:GetTagValues, and tag:GetResources permissions. ({aws_code}: {aws_message})",
+                message=f"Access denied for {operation}. Ensure the IAM role has tag:GetTagKeys, tag:GetTagValues, and tag:GetResources permissions.",
                 details={"aws_error_code": aws_code, "region": region},
             ) from exc
         raise APIError(
             status_code=status.HTTP_502_BAD_GATEWAY,
             code="tags_api_error",
-            message=f"AWS tagging API error: {aws_code}: {aws_message}" if aws_message else _friendly_exception_message(exc),
+            message=f"AWS tagging API request failed ({aws_code or 'ClientError'}).",
             details={"aws_error_code": aws_code, "region": region},
         ) from exc
     if isinstance(exc, (EndpointConnectionError, ConnectTimeoutError, ReadTimeoutError)):
@@ -551,7 +659,7 @@ def get_tag_keys(region: str = Query(default="us-east-1")) -> Dict[str, Any]:
 )
 def get_tag_values(
     region: str = Query(default="us-east-1"),
-    key: str = Query(..., min_length=1),
+    key: str = Query(..., min_length=1, max_length=128),
 ) -> Dict[str, Any]:
     region = _validate_region(region)
     try:
@@ -578,10 +686,17 @@ def get_tag_resources(
 
     region = _validate_region(region)
 
+    _MAX_TAG_FILTER_ENTRIES = 20
+    _MAX_TAG_KEY_LEN = 256
+    _MAX_TAG_VALUE_LEN = 512
+    _MAX_TAG_VALUES_PER_KEY = 50
+
     try:
         parsed_filters = _json.loads(tag_filters)
         if not isinstance(parsed_filters, list):
             raise ValueError("tag_filters must be a JSON array")
+        if len(parsed_filters) > _MAX_TAG_FILTER_ENTRIES:
+            raise ValueError(f"tag_filters may not exceed {_MAX_TAG_FILTER_ENTRIES} entries")
         for i, entry in enumerate(parsed_filters):
             if not isinstance(entry, dict):
                 raise ValueError(f"tag_filters[{i}] must be an object")
@@ -589,8 +704,16 @@ def get_tag_resources(
                 raise ValueError(f"tag_filters[{i}] is missing required field 'Key'")
             if not isinstance(entry.get("Key"), str):
                 raise ValueError(f"tag_filters[{i}].Key must be a string")
-            if "Values" in entry and not isinstance(entry["Values"], list):
-                raise ValueError(f"tag_filters[{i}].Values must be an array")
+            if len(entry["Key"]) > _MAX_TAG_KEY_LEN:
+                raise ValueError(f"tag_filters[{i}].Key exceeds maximum length of {_MAX_TAG_KEY_LEN}")
+            if "Values" in entry:
+                if not isinstance(entry["Values"], list):
+                    raise ValueError(f"tag_filters[{i}].Values must be an array")
+                if len(entry["Values"]) > _MAX_TAG_VALUES_PER_KEY:
+                    raise ValueError(f"tag_filters[{i}].Values may not exceed {_MAX_TAG_VALUES_PER_KEY} items")
+                for j, v in enumerate(entry["Values"]):
+                    if not isinstance(v, str) or len(v) > _MAX_TAG_VALUE_LEN:
+                        raise ValueError(f"tag_filters[{i}].Values[{j}] must be a string of at most {_MAX_TAG_VALUE_LEN} characters")
     except (ValueError, _json.JSONDecodeError) as exc:
         raise APIError(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
@@ -611,7 +734,7 @@ def get_tag_resources(
                 if arn:
                     arns.append(arn)
 
-        services = sorted(s for s in set(_service_from_arn(arn) for arn in arns) if s)
+        services = sorted(s for s in set(normalize_service_name(_service_from_arn(arn)) for arn in arns) if s)
         return {"arns": arns, "services": services}
     except Exception as exc:
         _handle_tagging_error(exc, region, "get_resources")

@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+import logging
 from datetime import datetime, timezone
 from threading import Lock
-from typing import Any, Dict, List, Set
+from typing import Any, Dict, List, Set, Tuple
 
 import networkx as nx
+
+logger = logging.getLogger(__name__)
 
 
 class GraphStore:
@@ -71,6 +74,27 @@ class GraphStore:
             metadata["edge_count"] = len(edges)
             return {"nodes": nodes, "edges": edges, "metadata": metadata}
 
+    def iter_nodes_by_service(self, service: str) -> List[Tuple[str, Dict[str, Any]]]:
+        """Return a snapshot of (node_id, attrs_copy) pairs for a given service."""
+        with self._lock:
+            return [
+                (nid, dict(attrs))
+                for nid, attrs in self.graph.nodes(data=True)
+                if attrs.get("service") == service
+            ]
+
+    def snapshot_graph(self) -> "nx.DiGraph":
+        """Return a shallow copy of the graph for read-only traversal."""
+        with self._lock:
+            return self.graph.copy()
+
+    def batch_update_nodes(self, updates: List[Tuple[str, Dict[str, Any]]]) -> None:
+        """Apply attribute updates to multiple nodes atomically."""
+        with self._lock:
+            for node_id, attrs in updates:
+                if self.graph.has_node(node_id):
+                    self.graph.nodes[node_id].update(attrs)
+
     def _node_matches_arns(self, node_id: str, attrs: Dict[str, Any], allowed_arns: Set[str]) -> bool:
         """Check if a node matches any of the allowed ARNs.
 
@@ -103,14 +127,24 @@ class GraphStore:
         Returns the number of nodes removed.
         """
         with self._lock:
+            logger.debug(
+                "filter_by_arns: %d graph nodes, %d allowed ARNs",
+                self.graph.number_of_nodes(), len(allowed_arns),
+            )
             # Phase 1: identify seed nodes (directly matched by ARN)
             seed_ids: Set[str] = set()
             no_arn_ids: Set[str] = set()
             for node_id, attrs in self.graph.nodes(data=True):
                 if self._node_matches_arns(node_id, attrs, allowed_arns):
                     seed_ids.add(node_id)
+                    logger.debug("filter_by_arns: KEEP seed %s", node_id)
                 elif not attrs.get("real_arn") and not attrs.get("arn"):
                     no_arn_ids.add(node_id)
+                else:
+                    logger.debug(
+                        "filter_by_arns: node %s arn=%s NOT in allowed set",
+                        node_id, attrs.get("arn") or attrs.get("real_arn"),
+                    )
 
             # Phase 2: expand to direct neighbors of seeds (1-hop)
             keep_ids = set(seed_ids) | no_arn_ids
@@ -153,6 +187,10 @@ class GraphStore:
             ]
             for node_id in nodes_to_remove:
                 self.graph.remove_node(node_id)
+            logger.debug(
+                "filter_by_arns: seeds=%d, no_arn=%d, kept=%d, removed=%d",
+                len(seed_ids), len(no_arn_ids), len(keep_ids), len(nodes_to_remove),
+            )
             return len(nodes_to_remove)
 
     def get_resource_payload(self, resource_id: str) -> Dict[str, Any]:

@@ -17,10 +17,27 @@ export function normalizeServiceName(service) {
   const aliases = {
     "api-gateway": "apigateway",
     apigw: "apigateway",
+    "execute-api": "apigateway",
     events: "eventbridge",
     "event-bridge": "eventbridge",
+    states: "stepfunctions",
     "cognito-idp": "cognito",
     "elasticloadbalancing": "elb",
+    "rds-data": "rds",
+    "redshift-data": "redshift",
+    monitoring: "cloudwatch",
+    es: "opensearch",
+    aoss: "opensearch",
+    waf: "wafv2",
+    "waf-regional": "wafv2",
+    neptune: "neptune-db",
+    inspector: "inspector2",
+    msk: "kafka",
+    "emr-serverless": "emr",
+    "elastic-beanstalk": "elasticbeanstalk",
+    "elasticfilesystem": "efs",
+    amazonmq: "mq",
+    "certificate-manager": "acm",
   };
   return aliases[key] || key;
 }
@@ -301,6 +318,51 @@ export const SERVICE_VISUALS = {
   kms: { label: "KMS", color: "#DD344C", accent: "#ff8394", role: "unknown", description: "Key management — creates and controls encryption keys for your data" },
   iam: { label: "IAM", color: "#DD344C", accent: "#ff8394", role: "unknown", description: "Identity and access management — controls who can access what resources" },
   vpc: { label: "VPC Network", color: "#248814", accent: "#5cc044", role: "network", description: "Network topology — VPCs, subnets, security groups, gateways, and routing" },
+  // Compute / Containers
+  eks: { label: "EKS", color: "#FF9900", accent: "#ffd27a", role: "processor", description: "Managed Kubernetes — runs containerized apps on Kubernetes clusters" },
+  ecr: { label: "ECR", color: "#FF9900", accent: "#ffd27a", role: "storage", description: "Container registry — stores, manages, and deploys Docker container images" },
+  batch: { label: "Batch", color: "#FF9900", accent: "#ffd27a", role: "processor", description: "Batch computing — runs batch jobs at any scale on managed infrastructure" },
+  elasticbeanstalk: { label: "Elastic Beanstalk", color: "#FF9900", accent: "#ffd27a", role: "processor", description: "App platform — deploys and scales web apps with auto-managed infrastructure" },
+  apprunner: { label: "App Runner", color: "#FF9900", accent: "#ffd27a", role: "processor", description: "Container service — deploys containerized web apps from source or image" },
+  // Storage
+  efs: { label: "EFS", color: "#7B2D8B", accent: "#c885da", role: "storage", description: "Elastic file system — serverless shared file storage for EC2 and containers" },
+  backup: { label: "AWS Backup", color: "#7B2D8B", accent: "#c885da", role: "storage", description: "Backup service — centralized backup management across AWS services" },
+  // Database
+  opensearch: { label: "OpenSearch", color: "#3F8624", accent: "#8ed66d", role: "storage", description: "Search and analytics — managed OpenSearch/Elasticsearch clusters" },
+  "neptune-db": { label: "Neptune", color: "#3F8624", accent: "#8ed66d", role: "storage", description: "Graph database — managed graph DB for highly connected datasets" },
+  dax: { label: "DAX", color: "#3F8624", accent: "#8ed66d", role: "storage", description: "DynamoDB Accelerator — in-memory cache for DynamoDB microsecond reads" },
+  // Networking
+  acm: { label: "ACM", color: "#00E7FF", accent: "#66f0ff", role: "network", description: "Certificate Manager — provisions and manages SSL/TLS certificates" },
+  // Monitoring / Management
+  cloudwatch: { label: "CloudWatch", color: "#00B4E0", accent: "#66d4f0", role: "unknown", description: "Monitoring — collects metrics, logs, and alarms for AWS resources" },
+  logs: { label: "CloudWatch Logs", color: "#00B4E0", accent: "#66d4f0", role: "unknown", description: "Log management — ingests, stores, and queries application and system logs" },
+  cloudformation: { label: "CloudFormation", color: "#00B4E0", accent: "#66d4f0", role: "unknown", description: "Infrastructure as code — provisions AWS resources from declarative templates" },
+  cloudtrail: { label: "CloudTrail", color: "#DD344C", accent: "#ff8394", role: "unknown", description: "Audit logging — records API calls and account activity for governance" },
+  ssm: { label: "Systems Manager", color: "#00B4E0", accent: "#66d4f0", role: "unknown", description: "Operations hub — manages EC2 instances, patching, parameters, and automation" },
+  config: { label: "AWS Config", color: "#00B4E0", accent: "#66d4f0", role: "unknown", description: "Configuration tracking — records and evaluates AWS resource configurations" },
+  // Security
+  wafv2: { label: "WAF", color: "#DD344C", accent: "#ff8394", role: "unknown", description: "Web application firewall — protects apps from common web exploits" },
+  guardduty: { label: "GuardDuty", color: "#DD344C", accent: "#ff8394", role: "unknown", description: "Threat detection — continuously monitors for malicious activity and anomalies" },
+  inspector2: { label: "Inspector", color: "#DD344C", accent: "#ff8394", role: "unknown", description: "Vulnerability scanning — automated security assessments of workloads" },
+  // Analytics
+  athena: { label: "Athena", color: "#4053D6", accent: "#8f9fff", role: "storage", description: "SQL query engine — serverless interactive queries on S3 data" },
+  kafka: { label: "MSK", color: "#C766D4", accent: "#dfa0e8", role: "queue", description: "Managed Kafka — fully managed Apache Kafka for streaming data" },
+  firehose: { label: "Kinesis Firehose", color: "#C766D4", accent: "#dfa0e8", role: "queue", description: "Data delivery — loads streaming data into S3, Redshift, OpenSearch" },
+  emr: { label: "EMR", color: "#4053D6", accent: "#8f9fff", role: "processor", description: "Big data processing — managed Hadoop/Spark clusters for data processing" },
+  quicksight: { label: "QuickSight", color: "#4053D6", accent: "#8f9fff", role: "unknown", description: "BI dashboards — serverless business intelligence and visualizations" },
+  // Developer Tools
+  codepipeline: { label: "CodePipeline", color: "#00B4E0", accent: "#66d4f0", role: "processor", description: "CI/CD pipeline — automates build, test, and deploy workflows" },
+  codebuild: { label: "CodeBuild", color: "#00B4E0", accent: "#66d4f0", role: "processor", description: "Build service — compiles source code, runs tests, produces artifacts" },
+  codecommit: { label: "CodeCommit", color: "#00B4E0", accent: "#66d4f0", role: "storage", description: "Git repository — managed private Git repos in AWS" },
+  codedeploy: { label: "CodeDeploy", color: "#00B4E0", accent: "#66d4f0", role: "processor", description: "Deployment service — automates code deployments to EC2, Lambda, ECS" },
+  // Machine Learning
+  sagemaker: { label: "SageMaker", color: "#6366F1", accent: "#a5a7fa", role: "processor", description: "ML platform — builds, trains, and deploys machine learning models" },
+  bedrock: { label: "Bedrock", color: "#6366F1", accent: "#a5a7fa", role: "processor", description: "GenAI service — access to foundation models for generative AI apps" },
+  // Application Integration
+  scheduler: { label: "EventBridge Scheduler", color: "#E7157B", accent: "#ff63b3", role: "trigger", description: "Task scheduler — creates scheduled one-time or recurring invocations" },
+  pipes: { label: "EventBridge Pipes", color: "#E7157B", accent: "#ff63b3", role: "trigger", description: "Event pipes — point-to-point integrations between event sources and targets" },
+  mq: { label: "Amazon MQ", color: "#FF4F8B", accent: "#ff8ab1", role: "queue", description: "Message broker — managed ActiveMQ and RabbitMQ for legacy messaging" },
+  // Fallback
   unknown: { label: "AWS Resource", color: "#6f8596", accent: "#a8bac7", role: "unknown", description: "AWS resource — part of your cloud architecture" },
 };
 

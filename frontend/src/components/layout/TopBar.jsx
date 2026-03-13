@@ -1,10 +1,11 @@
-import React, { useCallback, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AWS_REGIONS } from "../../lib/awsRegions";
 import { getServiceVisual } from "../../lib/serviceVisuals.jsx";
 import { useClickOutside } from "../../hooks/useClickOutside";
 import { TagFilterBar } from "./TagFilterBar";
 
-const AWS_SERVICE_GROUPS = [
+// Hardcoded fallback — used when the API is unreachable.
+const FALLBACK_SERVICE_GROUPS = [
   {
     label: "API & Integration",
     services: [
@@ -61,9 +62,48 @@ const AWS_SERVICE_GROUPS = [
   },
 ];
 
-const ALL_SERVICES = AWS_SERVICE_GROUPS.flatMap((g) => g.services);
+/**
+ * Convert the flat list returned by GET /api/services into the grouped
+ * structure the ServiceMultiSelect component expects.
+ */
+function groupServicesPayload(payload) {
+  const groupMap = {};
+  for (const svc of payload.services) {
+    if (!groupMap[svc.group]) groupMap[svc.group] = { label: svc.group, services: [] };
+    groupMap[svc.group].services.push({ value: svc.id, label: svc.label });
+  }
+  return Object.values(groupMap);
+}
 
-function ServiceMultiSelect({ selectedServices, onChange }) {
+function useServiceGroups() {
+  const [groups, setGroups] = useState(FALLBACK_SERVICE_GROUPS);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch("/api/services")
+      .then((res) => {
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        return res.json();
+      })
+      .then((data) => {
+        if (!cancelled && data?.services?.length) {
+          setGroups(groupServicesPayload(data));
+        }
+      })
+      .catch(() => {
+        // Keep fallback on failure — no action needed.
+      });
+    return () => { cancelled = true; };
+  }, []);
+
+  return groups;
+}
+
+function useAllServices(groups) {
+  return useMemo(() => groups.flatMap((g) => g.services), [groups]);
+}
+
+function ServiceMultiSelect({ selectedServices, onChange, serviceGroups, allServices }) {
   const [open, setOpen] = useState(false);
   const containerRef = useRef(null);
   const close = useCallback(() => setOpen(false), []);
@@ -77,7 +117,7 @@ function ServiceMultiSelect({ selectedServices, onChange }) {
     );
   }, [selectedServices, onChange]);
 
-  const selectAll = useCallback(() => onChange(ALL_SERVICES.map((s) => s.value)), [onChange]);
+  const selectAll = useCallback(() => onChange(allServices.map((s) => s.value)), [onChange, allServices]);
   const clearAll = useCallback(() => onChange([]), [onChange]);
 
   const count = selectedServices.length;
@@ -105,7 +145,7 @@ function ServiceMultiSelect({ selectedServices, onChange }) {
           {count === 0
             ? "Select services…"
             : count <= 2
-            ? selectedServices.map((v) => ALL_SERVICES.find((s) => s.value === v)?.label || v).join(", ")
+            ? selectedServices.map((v) => allServices.find((s) => s.value === v)?.label || v).join(", ")
             : `${count} services`}
         </span>
         <span className="svc-select-caret">{open ? "▲" : "▼"}</span>
@@ -116,11 +156,11 @@ function ServiceMultiSelect({ selectedServices, onChange }) {
           <div className="svc-select-actions">
             <button className="svc-select-action-btn" onClick={selectAll}>All</button>
             <button className="svc-select-action-btn" onClick={clearAll}>None</button>
-            <span className="svc-select-count">{count} / {ALL_SERVICES.length} selected</span>
+            <span className="svc-select-count">{count} / {allServices.length} selected</span>
           </div>
 
           <div className="svc-select-list">
-            {AWS_SERVICE_GROUPS.map((group) => (
+            {serviceGroups.map((group) => (
               <div key={group.label} className="svc-select-group">
                 <div className="svc-select-group-label">{group.label}</div>
                 {group.services.map((svc) => {
@@ -178,6 +218,9 @@ export function TopBar({
   onScanByTags,
   tagScanLoading,
 }) {
+  const serviceGroups = useServiceGroups();
+  const allServices = useAllServices(serviceGroups);
+
   return (
     <header className="topbar-shell">
       <div className="topbar-left">
@@ -240,7 +283,7 @@ export function TopBar({
         {/* SERVICES mode controls */}
         {scanFilterMode !== "tags" && (
           <>
-            <ServiceMultiSelect selectedServices={selectedServices} onChange={onServicesChange} />
+            <ServiceMultiSelect selectedServices={selectedServices} onChange={onServicesChange} serviceGroups={serviceGroups} allServices={allServices} />
 
             <select className="topbar-compact-select" value={scanMode} onChange={(event) => onScanModeChange(event.target.value)}>
               <option value="quick">Quick</option>

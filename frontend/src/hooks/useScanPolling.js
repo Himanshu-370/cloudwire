@@ -121,7 +121,7 @@ export function useScanPolling() {
     if (jobId) params.set("job_id", jobId);
     const suffix = params.toString() ? `?${params.toString()}` : "";
     return requestJson(
-      `/resource/${encodeURIComponent(resourceId)}${suffix}`,
+      `/resource/${resourceId}${suffix}`,
       {},
       "Unable to load resource details"
     );

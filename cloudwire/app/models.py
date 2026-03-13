@@ -3,24 +3,18 @@ from typing import Any, Dict, List, Literal, Optional
 
 from pydantic import BaseModel, Field, field_validator
 
+from .services import (  # noqa: F401  — re-exported for backward compatibility
+    DEFAULT_SERVICES,
+    SERVICE_ALIASES,
+    normalize_service_name,
+)
+
 _REGION_RE = re.compile(r"^[a-z]{2}(-[a-z]+)+-\d+$")
-
-SERVICE_ALIASES: Dict[str, str] = {
-    "api-gateway": "apigateway",
-    "apigw": "apigateway",
-    "event-bridge": "eventbridge",
-    "events": "eventbridge",
-}
-
-
-def normalize_service_name(service: str) -> str:
-    key = service.lower().strip()
-    return SERVICE_ALIASES.get(key, key)
-
-
-DEFAULT_SERVICES = ["apigateway", "lambda", "sqs", "eventbridge", "dynamodb", "vpc"]
 ScanMode = Literal["quick", "deep"]
 JobStatus = Literal["queued", "running", "completed", "failed", "cancelled"]
+
+
+_ARN_RE = re.compile(r"^arn:aws[a-z\-]*:[a-z0-9\-]+:[a-z0-9\-]*:\d{12}:.{1,512}$")
 
 
 class ScanRequest(BaseModel):
@@ -30,7 +24,7 @@ class ScanRequest(BaseModel):
     force_refresh: bool = False
     include_iam_inference: Optional[bool] = None
     include_resource_describes: Optional[bool] = None
-    tag_arns: Optional[List[str]] = Field(default=None, max_length=10000)
+    tag_arns: Optional[List[str]] = Field(default=None, max_length=5000)
 
     @field_validator("region")
     @classmethod
@@ -46,7 +40,21 @@ class ScanRequest(BaseModel):
         cleaned = [service.strip() for service in value if service and service.strip()]
         if not cleaned:
             raise ValueError("at least one AWS service must be selected")
+        if len(cleaned) > 50:
+            raise ValueError("at most 50 services may be selected per scan")
         return cleaned
+
+    @field_validator("tag_arns")
+    @classmethod
+    def validate_tag_arns(cls, value: Optional[List[str]]) -> Optional[List[str]]:
+        if value is None:
+            return None
+        for i, arn in enumerate(value):
+            if not isinstance(arn, str) or len(arn) > 2048:
+                raise ValueError(f"tag_arns[{i}] must be a string of at most 2048 characters")
+            if not _ARN_RE.match(arn):
+                raise ValueError(f"tag_arns[{i}] is not a valid ARN format")
+        return value
 
 
 class GraphResponse(BaseModel):

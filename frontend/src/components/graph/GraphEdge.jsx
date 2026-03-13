@@ -53,8 +53,10 @@ export function GraphEdge({ edge, sourceNode, targetNode, highlighted, hovered, 
 
   const sourceRadius = nodeRadius(sourceNode);
   const targetRadius = nodeRadius(targetNode);
-  const sourcePos = boundaryPoint(sourceNode.position, targetNode.position, sourceRadius);
-  const targetPos = boundaryPoint(targetNode.position, sourceNode.position, targetRadius);
+  const srcPos = sourceNode.position || { x: 0, y: 0 };
+  const tgtPos = targetNode.position || { x: 0, y: 0 };
+  const sourcePos = boundaryPoint(srcPos, tgtPos, sourceRadius);
+  const targetPos = boundaryPoint(tgtPos, srcPos, targetRadius);
 
   const { path, labelX, labelY } = curvedPath(sourcePos, targetPos);
 

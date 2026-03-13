@@ -145,8 +145,9 @@ export function GraphNode({ node, selected, highlighted, hovered, role, blastHig
   const [tooltipVisible, setTooltipVisible] = useState(false);
   const visual = getServiceVisual(node.service);
   const frame = getNodeFrame(node, selected);
-  const left = node.position.x - frame.width / 2;
-  const top = node.position.y - frame.height / 2;
+  const pos = node.position || { x: 0, y: 0 };
+  const left = pos.x - frame.width / 2;
+  const top = pos.y - frame.height / 2;
   const centerX = frame.width / 2;
   const centerY = frame.height / 2;
   const outerRadius = Math.min(frame.width, frame.height) / 2 - 6;

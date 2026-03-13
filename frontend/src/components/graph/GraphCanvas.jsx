@@ -106,7 +106,7 @@ export const GraphCanvas = forwardRef(function GraphCanvas(
         const frame = getNodeFrame(node, selectedNodeId === node.id);
         return {
           ...node,
-          position: localPositions[node.id] || node.position,
+          position: localPositions[node.id] || node.position || { x: 0, y: 0 },
           width: frame.width,
           height: frame.height,
         };
@@ -495,19 +495,19 @@ export const GraphCanvas = forwardRef(function GraphCanvas(
         </ViewportScaleContext.Provider>
       </svg>
       <div className="graph-canvas-corner">
-        <div className="canvas-viewport-controls">
-          <button onClick={fitGraph} title="Fit graph to view">FIT</button>
-          <button onClick={resetView} title="Reset zoom and pan">RESET</button>
-          <button onClick={() => zoomAtPoint(1.18, { x: containerRef.current?.clientWidth / 2 || 0, y: containerRef.current?.clientHeight / 2 || 0 })} title="Zoom in">+</button>
-          <button onClick={() => zoomAtPoint(0.84, { x: containerRef.current?.clientWidth / 2 || 0, y: containerRef.current?.clientHeight / 2 || 0 })} title="Zoom out">−</button>
-        </div>
+        <GraphLegend />
         <Minimap
           nodes={nodesWithPositions}
           viewport={viewport}
           containerRef={containerRef}
           onPan={handleMinimapPan}
         />
-        <GraphLegend />
+        <div className="canvas-viewport-controls">
+          <button onClick={() => zoomAtPoint(0.84, { x: containerRef.current?.clientWidth / 2 || 0, y: containerRef.current?.clientHeight / 2 || 0 })} title="Zoom out">−</button>
+          <button onClick={fitGraph} title="Fit graph to view">FIT</button>
+          <button onClick={resetView} title="Reset zoom and pan">RST</button>
+          <button onClick={() => zoomAtPoint(1.18, { x: containerRef.current?.clientWidth / 2 || 0, y: containerRef.current?.clientHeight / 2 || 0 })} title="Zoom in">+</button>
+        </div>
       </div>
     </div>
   );
