@@ -1679,3 +1679,734 @@
   color: #ff9900;
   border-left-color: #ff9900;
 }
+
+/* ═══════════════════════════════════════════════════════════════════
+   X-Ray / Trace Flow styles
+   ═══════════════════════════════════════════════════════════════════ */
+
+/* View mode toggle */
+.topbar-view-toggle {
+  display: flex;
+  gap: 1px;
+  background: #0a1520;
+  border-radius: 5px;
+  padding: 2px;
+  border: 1px solid #1a2d3e;
+}
+
+.topbar-view-btn {
+  background: transparent;
+  color: #4a7080;
+  border: none;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  padding: 4px 10px;
+  border-radius: 3px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.topbar-view-btn:hover {
+  color: #a0c4d8;
+  background: #0d1a28;
+}
+
+.topbar-view-btn.active {
+  color: #ffffff;
+  background: #1a2d3e;
+}
+
+.topbar-view-btn.active:nth-child(2) {
+  color: #00e7aa;
+  background: #0a2a22;
+  box-shadow: 0 0 6px #00e7aa22;
+}
+
+.topbar-view-btn.active:nth-child(3) {
+  color: #9966ff;
+  background: #1a1530;
+  box-shadow: 0 0 6px #9966ff22;
+}
+
+/* X-Ray time select */
+.topbar-xray-time-select {
+  min-width: 70px;
+}
+
+/* X-Ray filter input */
+.topbar-xray-filter-input {
+  background: #060e16;
+  border: 1px solid #1a2d3e;
+  color: #a0c4d8;
+  font-size: 11px;
+  padding: 4px 8px;
+  border-radius: 4px;
+  width: 200px;
+  outline: none;
+  transition: border-color 0.15s ease;
+}
+
+.topbar-xray-filter-input::placeholder {
+  color: #2a4050;
+  font-style: italic;
+}
+
+.topbar-xray-filter-input:focus {
+  border-color: #00e7aa;
+  box-shadow: 0 0 4px #00e7aa22;
+}
+
+/* X-Ray primary button */
+.topbar-primary-btn--xray {
+  background: linear-gradient(135deg, #00e7aa 0%, #009977 100%);
+  color: #000;
+}
+
+.topbar-primary-btn--xray:hover {
+  background: linear-gradient(135deg, #00ffbb 0%, #00bb99 100%);
+  box-shadow: 0 0 12px #00e7aa40;
+}
+
+/* X-Ray progress track */
+.topbar-inline-progress-track--xray {
+  background: #0a2a22;
+}
+
+.topbar-inline-progress-fill--xray {
+  background: linear-gradient(90deg, #00e7aa, #009977);
+}
+
+/* X-Ray done label */
+.topbar-done--xray {
+  color: #00e7aa;
+}
+
+/* X-Ray edge glow */
+.graph-edge-path--xray {
+  filter: drop-shadow(0 0 3px rgba(0, 231, 170, 0.2));
+}
+
+/* X-Ray error bar */
+.graph-stage-error--xray {
+  border-left-color: #00e7aa;
+}
+
+/* Trace toolbar button */
+.graph-toolbar-btn--xray {
+  color: #00e7aa;
+}
+
+.graph-toolbar-btn--xray.active {
+  background: #0a2a22;
+  color: #00e7aa;
+  border-color: #00e7aa40;
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   Trace Panel
+   ═══════════════════════════════════════════════════════════════════ */
+
+.trace-panel {
+  position: fixed;
+  bottom: 0;
+  left: 220px;
+  right: 0;
+  max-height: 45vh;
+  background: #060e16;
+  border-top: 1px solid #1a2d3e;
+  display: flex;
+  flex-direction: column;
+  z-index: 40;
+  animation: trace-panel-slide-up 0.2s ease-out;
+}
+
+@keyframes trace-panel-slide-up {
+  from { transform: translateY(100%); opacity: 0; }
+  to { transform: translateY(0); opacity: 1; }
+}
+
+.trace-panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 16px;
+  border-bottom: 1px solid #1a2d3e;
+  flex-shrink: 0;
+}
+
+.trace-panel-title {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  color: #00e7aa;
+}
+
+.trace-panel-close {
+  background: transparent;
+  border: 1px solid #1a2d3e;
+  color: #4a7080;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  padding: 3px 10px;
+  border-radius: 3px;
+  cursor: pointer;
+}
+
+.trace-panel-close:hover {
+  color: #ff6677;
+  border-color: #ff667744;
+}
+
+.trace-panel-list {
+  overflow-y: auto;
+  flex: 1;
+  padding: 4px 0;
+}
+
+.trace-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 5px 16px;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  font-family: inherit;
+  text-align: left;
+  transition: background 0.1s;
+}
+
+.trace-row:hover {
+  background: #0a1a28;
+}
+
+.trace-row--selected {
+  background: #0d1f30;
+}
+
+.trace-status-pill {
+  font-size: 8px;
+  font-weight: 800;
+  letter-spacing: 0.1em;
+  padding: 2px 6px;
+  border-radius: 3px;
+  min-width: 42px;
+  text-align: center;
+}
+
+.trace-row--ok .trace-status-pill { background: #00e7aa22; color: #00e7aa; }
+.trace-row--error .trace-status-pill { background: #ffaa0022; color: #ffaa00; }
+.trace-row--fault .trace-status-pill { background: #ff444422; color: #ff4444; }
+.trace-row--throttle .trace-status-pill { background: #9966ff22; color: #9966ff; }
+
+.trace-entry {
+  font-size: 11px;
+  color: #a0c4d8;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.trace-method {
+  font-size: 9px;
+  font-weight: 700;
+  color: #4a7080;
+  letter-spacing: 0.06em;
+  min-width: 36px;
+}
+
+.trace-duration {
+  font-size: 10px;
+  color: #6f8596;
+  min-width: 50px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.trace-id-short {
+  font-size: 9px;
+  color: #2a4050;
+  font-family: monospace;
+  min-width: 60px;
+  text-align: right;
+}
+
+.trace-panel-loading {
+  padding: 12px 16px;
+  font-size: 11px;
+  color: #4a7080;
+}
+
+.trace-panel-error {
+  padding: 8px 16px;
+  font-size: 11px;
+  color: #ff6677;
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   Trace Waterfall
+   ═══════════════════════════════════════════════════════════════════ */
+
+.trace-waterfall {
+  border-top: 1px solid #1a2d3e;
+  flex-shrink: 0;
+  max-height: 250px;
+  overflow-y: auto;
+}
+
+.trace-waterfall-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 16px;
+  background: #081018;
+  border-bottom: 1px solid #1a2d3e;
+  position: sticky;
+  top: 0;
+  z-index: 1;
+}
+
+.trace-waterfall-title {
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  color: #00e7aa;
+}
+
+.trace-waterfall-close {
+  background: transparent;
+  border: 1px solid #1a2d3e;
+  color: #4a7080;
+  font-size: 8px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  padding: 2px 8px;
+  border-radius: 3px;
+  cursor: pointer;
+}
+
+.trace-waterfall-close:hover {
+  color: #ff6677;
+  border-color: #ff667744;
+}
+
+.trace-waterfall-body {
+  padding: 4px 0;
+}
+
+.trace-waterfall-empty {
+  padding: 12px 16px;
+  font-size: 11px;
+  color: #2a4050;
+}
+
+.waterfall-row {
+  display: flex;
+  align-items: center;
+  padding: 2px 16px;
+  gap: 8px;
+}
+
+.waterfall-label {
+  font-size: 10px;
+  color: #a0c4d8;
+  min-width: 140px;
+  max-width: 200px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.waterfall-dur {
+  color: #4a7080;
+  margin-left: 4px;
+  font-size: 9px;
+}
+
+.waterfall-track {
+  flex: 1;
+  height: 10px;
+  background: #0a1520;
+  border-radius: 2px;
+  position: relative;
+  overflow: hidden;
+}
+
+.waterfall-bar {
+  position: absolute;
+  top: 1px;
+  height: 8px;
+  border-radius: 1px;
+  min-width: 2px;
+  opacity: 0.85;
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   X-Ray Filter Bar
+   ═══════════════════════════════════════════════════════════════════ */
+
+.xray-filter-bar {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-wrap: nowrap;
+}
+
+/* Shared dropdown wrapper */
+.xray-filter-dropdown-wrap {
+  position: relative;
+}
+
+.xray-filter-dropdown-trigger {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  background: #060e16;
+  border: 1px solid #1a2d3e;
+  color: #a0c4d8;
+  font-size: 10px;
+  font-family: inherit;
+  padding: 4px 8px;
+  border-radius: 4px;
+  cursor: pointer;
+  white-space: nowrap;
+  max-width: 160px;
+  transition: border-color 0.15s ease;
+}
+
+.xray-filter-dropdown-trigger:hover {
+  border-color: #2a4a60;
+}
+
+.xray-filter-dropdown-trigger.open {
+  border-color: #00e7aa60;
+}
+
+.xray-filter-dropdown-trigger.active {
+  border-color: #00e7aa;
+  color: #00e7aa;
+}
+
+.xray-filter-dropdown-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.xray-filter-dropdown-caret {
+  font-size: 7px;
+  color: #4a7080;
+  flex-shrink: 0;
+}
+
+/* Dropdown panel */
+.xray-filter-dropdown-panel {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  min-width: 180px;
+  max-width: 260px;
+  background: #0a1520;
+  border: 1px solid #1a2d3e;
+  border-radius: 6px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+  z-index: 200;
+  overflow: hidden;
+  animation: xray-dropdown-in 0.12s ease-out;
+}
+
+@keyframes xray-dropdown-in {
+  from { opacity: 0; transform: translateY(-4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* Key search input */
+.xray-filter-search {
+  width: 100%;
+  background: #060e16;
+  border: none;
+  border-bottom: 1px solid #1a2d3e;
+  color: #a0c4d8;
+  font-size: 10px;
+  font-family: inherit;
+  padding: 6px 8px;
+  outline: none;
+}
+
+.xray-filter-search::placeholder {
+  color: #2a4050;
+  font-style: italic;
+}
+
+/* Key list */
+.xray-filter-key-list {
+  max-height: 200px;
+  overflow-y: auto;
+  padding: 4px 0;
+}
+
+.xray-filter-key-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  background: transparent;
+  border: none;
+  color: #a0c4d8;
+  font-size: 10px;
+  font-family: inherit;
+  padding: 5px 10px;
+  cursor: pointer;
+  text-align: left;
+}
+
+.xray-filter-key-item:hover {
+  background: #0d1e2e;
+}
+
+.xray-filter-key-item.selected {
+  background: #0a2a22;
+  color: #00e7aa;
+}
+
+.xray-filter-key-dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: #00e7aa;
+  flex-shrink: 0;
+  opacity: 0.5;
+}
+
+.xray-filter-key-item.selected .xray-filter-key-dot {
+  opacity: 1;
+}
+
+.xray-filter-clear-item {
+  color: #ff6677;
+  font-style: italic;
+  border-bottom: 1px solid #1a2d3e;
+}
+
+.xray-filter-clear-item:hover {
+  background: #1a0e12;
+}
+
+.xray-filter-empty {
+  padding: 10px;
+  color: #2a4050;
+  font-size: 10px;
+  font-style: italic;
+  text-align: center;
+}
+
+/* Value list */
+.xray-filter-value-list {
+  max-height: 200px;
+  overflow-y: auto;
+  padding: 4px 0;
+}
+
+.xray-filter-value-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  cursor: pointer;
+  font-size: 10px;
+  color: #a0c4d8;
+  transition: background 0.1s ease;
+}
+
+.xray-filter-value-item:hover {
+  background: #0d1e2e;
+}
+
+.xray-filter-value-item.checked {
+  color: #00e7aa;
+}
+
+.xray-filter-checkbox {
+  display: none;
+}
+
+.xray-filter-value-check {
+  width: 12px;
+  height: 12px;
+  border: 1px solid #2a4050;
+  border-radius: 2px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.xray-filter-value-item.checked .xray-filter-value-check {
+  border-color: #00e7aa;
+  background: #00e7aa15;
+}
+
+/* Apply button */
+.xray-filter-apply-btn {
+  display: block;
+  width: 100%;
+  background: #00e7aa;
+  color: #000;
+  border: none;
+  font-size: 9px;
+  font-weight: 700;
+  font-family: inherit;
+  letter-spacing: 0.08em;
+  padding: 6px;
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+
+.xray-filter-apply-btn:hover {
+  background: #00ffbb;
+}
+
+/* Group trigger */
+.xray-filter-group-trigger {
+  border-style: dashed;
+}
+
+.xray-filter-group-trigger.active {
+  border-style: solid;
+}
+
+.xray-filter-group-dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: #9966ff;
+  flex-shrink: 0;
+  opacity: 0.6;
+}
+
+.xray-filter-key-item.selected .xray-filter-group-dot {
+  opacity: 1;
+}
+
+/* Advanced mode toggle */
+.xray-filter-advanced-btn {
+  background: transparent;
+  border: 1px solid #1a2d3e;
+  color: #4a7080;
+  font-size: 8px;
+  font-weight: 700;
+  font-family: inherit;
+  letter-spacing: 0.08em;
+  padding: 4px 6px;
+  border-radius: 3px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.xray-filter-advanced-btn:hover {
+  border-color: #2a4a60;
+  color: #a0c4d8;
+}
+
+.xray-filter-advanced-btn.active {
+  background: #0a2a22;
+  border-color: #00e7aa40;
+  color: #00e7aa;
+}
+
+/* Refresh button */
+.xray-filter-refresh-btn {
+  background: transparent;
+  border: 1px solid #1a2d3e;
+  color: #4a7080;
+  padding: 3px 5px;
+  border-radius: 3px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.15s ease;
+}
+
+.xray-filter-refresh-btn:hover:not(:disabled) {
+  border-color: #2a4a60;
+  color: #a0c4d8;
+}
+
+.xray-filter-refresh-btn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+/* Filter chips */
+.xray-filter-chips {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+
+.xray-filter-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  background: #0a2a22;
+  border: 1px solid #00e7aa30;
+  border-radius: 3px;
+  padding: 2px 4px;
+  font-size: 9px;
+  color: #00e7aa;
+  white-space: nowrap;
+}
+
+.xray-filter-chip-key {
+  color: #4a9080;
+}
+
+.xray-filter-chip-eq {
+  color: #2a5050;
+}
+
+.xray-filter-chip-val {
+  color: #00e7aa;
+  font-weight: 600;
+}
+
+.xray-filter-chip-remove {
+  background: transparent;
+  border: none;
+  color: #4a7080;
+  font-size: 11px;
+  cursor: pointer;
+  padding: 0 1px;
+  line-height: 1;
+}
+
+.xray-filter-chip-remove:hover {
+  color: #ff6677;
+}
+
+.xray-filter-clear-btn {
+  background: transparent;
+  border: none;
+  color: #ff6677;
+  font-size: 9px;
+  font-family: inherit;
+  cursor: pointer;
+  padding: 2px 4px;
+}
+
+.xray-filter-clear-btn:hover {
+  text-decoration: underline;
+}
+
+/* Error indicator */
+.xray-filter-error {
+  color: #ff6677;
+  font-size: 12px;
+  cursor: help;
+}

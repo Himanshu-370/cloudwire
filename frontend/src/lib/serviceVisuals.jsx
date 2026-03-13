@@ -244,6 +244,26 @@ export function createServiceIcon(service, color) {
         </>,
         color
       );
+    case "client":
+      return wrapIcon(
+        <>
+          <rect x="3" y="4" width="12" height="8" rx="1.5" />
+          <path d="M6 12v2" />
+          <path d="M12 12v2" />
+          <path d="M4 14h10" />
+        </>,
+        color
+      );
+    case "xray":
+      return wrapIcon(
+        <>
+          <circle cx="9" cy="9" r="6" />
+          <path d="M5 5l8 8" />
+          <path d="M13 5l-8 8" />
+          <circle cx="9" cy="9" r="2" fill={color} fillOpacity="0.3" />
+        </>,
+        color
+      );
     default:
       return wrapIcon(
         <>
@@ -278,6 +298,8 @@ export const SERVICE_VISUALS = {
   secretsmanager: { label: "Secrets Manager", color: "#DD344C", accent: "#ff8394", role: "unknown", description: "Secrets store — securely manages API keys, passwords, and credentials" },
   kms: { label: "KMS", color: "#DD344C", accent: "#ff8394", role: "unknown", description: "Key management — creates and controls encryption keys for your data" },
   iam: { label: "IAM", color: "#DD344C", accent: "#ff8394", role: "unknown", description: "Identity and access management — controls who can access what resources" },
+  client: { label: "Client", color: "#a0c4ff", accent: "#c0daff", role: "trigger", description: "External client — the origin of incoming requests to your services" },
+  xray: { label: "X-Ray Service", color: "#9966ff", accent: "#c4a8ff", role: "unknown", description: "Service detected via X-Ray tracing — not directly scanned" },
   unknown: { label: "AWS Resource", color: "#6f8596", accent: "#a8bac7", role: "unknown", description: "AWS resource — part of your cloud architecture" },
 };
 

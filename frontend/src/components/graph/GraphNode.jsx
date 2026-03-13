@@ -107,6 +107,14 @@ function getTooltipRows(node) {
     if (node.key_usage) rows.push({ key: "usage", val: node.key_usage });
   }
 
+  // X-Ray stats — shown when trace data is available
+  if (node.has_xray || node.source === "xray") {
+    if (node.requests != null) rows.push({ key: "requests", val: String(node.requests) });
+    if (node.avg_latency_ms != null) rows.push({ key: "avg latency", val: `${node.avg_latency_ms}ms` });
+    if (node.p99_latency_ms != null) rows.push({ key: "p99 latency", val: `${node.p99_latency_ms}ms` });
+    if (node.error_rate != null && node.error_rate > 0) rows.push({ key: "error rate", val: `${node.error_rate}%` });
+  }
+
   // ARN — always last, truncated
   const arn = node.arn;
   if (arn && typeof arn === "string" && arn.startsWith("arn:")) {
@@ -232,6 +240,46 @@ export function GraphNode({ node, selected, highlighted, hovered, role, blastHig
             </circle>
           )}
         </>
+      )}
+
+      {/* X-Ray request count badge */}
+      {(node.has_xray || node.source === "xray") && node.requests > 0 && showLabels && !isCluster && (
+        <g transform={`translate(${frame.width - 8}, 2)`}>
+          <rect
+            x={-String(node.requests).length * 3.5 - 4}
+            y="0"
+            width={String(node.requests).length * 7 + 8}
+            height="13"
+            rx="6.5"
+            fill="#0a1520"
+            stroke="#00e7aa"
+            strokeWidth="0.7"
+          />
+          <text
+            x={0}
+            y="10"
+            textAnchor="middle"
+            fontSize="8"
+            fill="#00e7aa"
+            fontWeight="700"
+          >
+            {node.requests > 999 ? `${(node.requests / 1000).toFixed(1)}k` : node.requests}
+          </text>
+        </g>
+      )}
+
+      {/* X-Ray error rate ring */}
+      {(node.has_xray || node.source === "xray") && node.error_rate > 5 && (
+        <circle
+          cx={centerX}
+          cy={centerY}
+          r={outerRadius + 6}
+          fill="none"
+          stroke="#ff4444"
+          strokeWidth="1.5"
+          strokeOpacity="0.7"
+          strokeDasharray="3,2"
+        />
       )}
 
       {/* Labels */}

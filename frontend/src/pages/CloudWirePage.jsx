@@ -1,9 +1,12 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { GraphCanvas } from "../components/graph/GraphCanvas";
+import { TracePanel } from "../components/graph/TracePanel";
 import { InspectorPanel } from "../components/layout/InspectorPanel";
 import { ServiceSidebar } from "../components/layout/ServiceSidebar";
 import { TopBar } from "../components/layout/TopBar";
 import { useScanPolling, formatJobStatusLabel } from "../hooks/useScanPolling";
+import { useXRayPolling, formatXRayJobStatusLabel } from "../hooks/useXRayPolling";
+import { useXRayFilters } from "../hooks/useXRayFilters";
 import { DEFAULT_REGION } from "../lib/awsRegions";
 import {
   buildClusteredGraph,
@@ -16,6 +19,7 @@ import {
   generateArchitectureSummary,
   layoutHybridGraph,
   layoutSwimlane,
+  mergeXRayOverlay,
   partitionByConnectivity,
 } from "../lib/graphTransforms";
 
@@ -90,9 +94,29 @@ export default function CloudWirePage() {
     fetchResource,
   } = useScanPolling();
 
+  // X-Ray polling hook
+  const {
+    xrayGraphData,
+    xrayJobStatus,
+    xrayLoading,
+    xrayError,
+    setXRayError,
+    traceSummaries,
+    runXRayScan,
+    stopXRayScan,
+    fetchTraceDetail,
+  } = useXRayPolling();
+
+  // View mode: "infrastructure" | "trace" | "overlay"
+  const [viewMode, setViewMode] = useState("infrastructure");
+  const [xrayTimeRange, setXRayTimeRange] = useState(60);
+
   const [selectedNodeId, setSelectedNodeId] = useState(null);
   const [resourceDetails, setResourceDetails] = useState(null);
   const [region, setRegion] = useState(() => localStorage.getItem("cloudwire_region") || DEFAULT_REGION);
+
+  // X-Ray annotation/group filter state (must be after region is declared)
+  const xrayFilters = useXRayFilters(region, xrayTimeRange);
   const [selectedServices, setSelectedServices] = useState(loadStoredServices);
   const [scanMode, setScanMode] = useState("quick");
   const [query, setQuery] = useState("");
@@ -114,6 +138,7 @@ export default function CloudWirePage() {
   const [blastRadiusMode, setBlastRadiusMode] = useState(false);
   const [showFlowAnimation, setShowFlowAnimation] = useState(true);
   const [showSummary, setShowSummary] = useState(false);
+  const [showTracePanel, setShowTracePanel] = useState(false);
 
   // FIX #5/#10: deferred layout change with proper timer cleanup
   const changeLayout = useCallback((newMode) => {
@@ -138,10 +163,17 @@ export default function CloudWirePage() {
 
   // --- Data pipeline ---
 
+  // Merge active graph data based on view mode
+  const activeGraphData = useMemo(() => {
+    if (viewMode === "trace") return xrayGraphData;
+    if (viewMode === "overlay") return mergeXRayOverlay(graphData, xrayGraphData);
+    return graphData;
+  }, [viewMode, graphData, xrayGraphData]);
+
   // Region filter
   const regionFilteredGraph = useMemo(
-    () => filterGraphByRegion(graphData.nodes, graphData.edges, region),
-    [graphData.edges, graphData.nodes, region]
+    () => filterGraphByRegion(activeGraphData.nodes, activeGraphData.edges, region),
+    [activeGraphData.edges, activeGraphData.nodes, region]
   );
 
   // Service visibility filter
@@ -378,7 +410,25 @@ export default function CloudWirePage() {
         statusLabel={formatJobStatusLabel(jobStatus)}
         forceRefresh={forceRefresh}
         onForceRefreshChange={setForceRefresh}
-        warnings={jobStatus?.warnings || []}
+        warnings={viewMode === "trace" ? (xrayJobStatus?.warnings || []) : (jobStatus?.warnings || [])}
+        viewMode={viewMode}
+        onViewModeChange={setViewMode}
+        xrayTimeRange={xrayTimeRange}
+        onXRayTimeRangeChange={setXRayTimeRange}
+        xrayFilters={xrayFilters}
+        onRunXRayScan={() => {
+          runXRayScan({
+            region,
+            timeRangeMinutes: xrayTimeRange,
+            filterExpression: xrayFilters.filterExpression || null,
+            groupName: xrayFilters.groupName || null,
+            forceRefresh,
+          }).catch(() => {});
+        }}
+        onStopXRayScan={() => stopXRayScan().catch(() => {})}
+        xrayLoading={xrayLoading}
+        xrayJobStatus={xrayJobStatus}
+        xrayStatusLabel={formatXRayJobStatusLabel(xrayJobStatus)}
       />
 
       <div className="cloudwire-layout">
@@ -527,6 +577,15 @@ export default function CloudWirePage() {
           )}
 
           <div className="graph-toolbar">
+            {(viewMode === "trace" || viewMode === "overlay") && traceSummaries.length > 0 && (
+              <button
+                className={`graph-toolbar-btn graph-toolbar-btn--xray ${showTracePanel ? "active" : ""}`}
+                onClick={() => setShowTracePanel((v) => !v)}
+                title="Show trace list and waterfall view"
+              >
+                TRACES ({traceSummaries.length})
+              </button>
+            )}
             <button
               className={`graph-toolbar-btn ${showSummary ? "active" : ""}`}
               onClick={() => setShowSummary((v) => !v)}
@@ -571,6 +630,7 @@ export default function CloudWirePage() {
           />
 
           {error && <div className="graph-stage-error">{error}</div>}
+          {xrayError && <div className="graph-stage-error graph-stage-error--xray">{xrayError}</div>}
           {resourceError && <div className="graph-stage-error graph-stage-error--resource">{resourceError}</div>}
           {pathNotFound && <div className="graph-stage-error graph-stage-error--info">No directed path found between these nodes.</div>}
 
@@ -593,7 +653,16 @@ export default function CloudWirePage() {
       </div>
 
       {jobStatus?.warnings?.length > 0 && (
-        <WarningsPanel key={currentJobId} warnings={jobStatus.warnings} />
+        <WarningsPanel key={currentJobId} warnings={viewMode === "trace" ? (xrayJobStatus?.warnings || []) : jobStatus.warnings} />
+      )}
+
+      {showTracePanel && traceSummaries.length > 0 && (
+        <TracePanel
+          traces={traceSummaries}
+          region={region}
+          fetchTraceDetail={fetchTraceDetail}
+          onClose={() => setShowTracePanel(false)}
+        />
       )}
     </div>
   );

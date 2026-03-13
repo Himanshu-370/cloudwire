@@ -678,6 +678,121 @@ export function detectPatterns(nodes, edges) {
   return patterns;
 }
 
+// --- X-Ray overlay merge ---
+
+/**
+ * Merge X-Ray flow graph onto infrastructure graph.
+ *
+ * Matching strategy:
+ * 1. Match by full ARN
+ * 2. Match by service + label (case-insensitive)
+ * 3. X-Ray nodes with no infra match become synthetic "xray:" nodes
+ *
+ * Edges from X-Ray are added with source:"xray" marker.
+ */
+export function mergeXRayOverlay(infraGraph, xrayGraph) {
+  if (!xrayGraph?.nodes?.length) return infraGraph;
+  if (!infraGraph?.nodes?.length) return xrayGraph;
+
+  // Build lookup maps for infrastructure nodes
+  const infraByArn = new Map();
+  const infraBySvcLabel = new Map();
+  infraGraph.nodes.forEach((node) => {
+    if (node.arn && typeof node.arn === "string" && node.arn.startsWith("arn:")) {
+      infraByArn.set(node.arn, node.id);
+    }
+    const key = `${(node.service || "").toLowerCase()}:${(node.label || "").toLowerCase()}`;
+    if (!infraBySvcLabel.has(key)) infraBySvcLabel.set(key, node.id);
+  });
+
+  // Map xray node IDs to infra node IDs (or keep as-is for unmatched)
+  const xrayToInfra = new Map();
+  const mergedNodes = new Map(infraGraph.nodes.map((n) => [n.id, { ...n }]));
+
+  xrayGraph.nodes.forEach((xrayNode) => {
+    let matchedId = null;
+
+    // Try ARN match
+    if (xrayNode.arn && infraByArn.has(xrayNode.arn)) {
+      matchedId = infraByArn.get(xrayNode.arn);
+    }
+    // Try service+label match
+    if (!matchedId) {
+      const key = `${(xrayNode.service || "").toLowerCase()}:${(xrayNode.label || "").toLowerCase()}`;
+      if (infraBySvcLabel.has(key)) {
+        matchedId = infraBySvcLabel.get(key);
+      }
+    }
+
+    if (matchedId) {
+      xrayToInfra.set(xrayNode.id, matchedId);
+      // Merge X-Ray stats onto the infra node
+      const existing = mergedNodes.get(matchedId);
+      if (existing) {
+        mergedNodes.set(matchedId, {
+          ...existing,
+          xray_stats: xrayNode.xray_stats,
+          requests: xrayNode.requests,
+          avg_latency_ms: xrayNode.avg_latency_ms,
+          error_rate: xrayNode.error_rate,
+          p99_latency_ms: xrayNode.p99_latency_ms,
+          has_xray: true,
+        });
+      }
+    } else {
+      // Add as new synthetic node
+      xrayToInfra.set(xrayNode.id, xrayNode.id);
+      if (!mergedNodes.has(xrayNode.id)) {
+        mergedNodes.set(xrayNode.id, { ...xrayNode, has_xray: true });
+      }
+    }
+  });
+
+  // Merge edges — keep all infra edges, add X-Ray edges
+  const edgeSet = new Set(infraGraph.edges.map((e) => `${e.source}→${e.target}`));
+  const mergedEdges = [...infraGraph.edges];
+
+  xrayGraph.edges.forEach((xrayEdge) => {
+    const src = xrayToInfra.get(xrayEdge.source) || xrayEdge.source;
+    const tgt = xrayToInfra.get(xrayEdge.target) || xrayEdge.target;
+    if (!mergedNodes.has(src) || !mergedNodes.has(tgt)) return;
+    if (src === tgt) return;
+
+    const key = `${src}→${tgt}`;
+    if (edgeSet.has(key)) {
+      // Enhance existing edge with X-Ray stats
+      const existing = mergedEdges.find((e) => e.source === src && e.target === tgt);
+      if (existing) {
+        existing.xray_stats = xrayEdge.xray_stats;
+        existing.requests = xrayEdge.requests;
+        existing.avg_latency_ms = xrayEdge.avg_latency_ms;
+        existing.error_rate = xrayEdge.error_rate;
+        existing.has_xray = true;
+      }
+    } else {
+      edgeSet.add(key);
+      mergedEdges.push({
+        ...xrayEdge,
+        id: `xray:${key}`,
+        source: src,
+        target: tgt,
+        source_attr: "xray",
+        has_xray: true,
+      });
+    }
+  });
+
+  return {
+    nodes: Array.from(mergedNodes.values()),
+    edges: mergedEdges,
+    metadata: {
+      ...infraGraph.metadata,
+      xray_metadata: xrayGraph.metadata,
+      has_xray_overlay: true,
+    },
+  };
+}
+
 // --- Architecture summary ---
 
 export function generateArchitectureSummary(nodes, edges) {
