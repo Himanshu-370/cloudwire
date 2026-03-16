@@ -40,6 +40,9 @@ coverage/
 # Agent memory
 memory/
 
+# AI assistant config
+.claude/
+
 # IDE
 .idea/
 .vscode/
