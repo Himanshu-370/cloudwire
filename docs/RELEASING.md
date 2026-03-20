@@ -225,10 +225,22 @@ cloudwire/
 ├── cli.py
 ├── app/
 │   ├── main.py
+│   ├── errors.py
+│   ├── aws_clients.py
 │   ├── models.py
+│   ├── services.py
 │   ├── scanner.py
 │   ├── scan_jobs.py
-│   └── graph_store.py
+│   ├── graph_store.py
+│   ├── terraform_parser.py
+│   ├── hcl_parser.py
+│   ├── routes/
+│   │   ├── scan.py
+│   │   ├── tags.py
+│   │   └── terraform.py
+│   └── scanners/
+│       ├── _utils.py
+│       └── ...
 └── static/
     ├── index.html
     └── assets/

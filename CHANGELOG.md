@@ -2,6 +2,23 @@
 
 All notable changes to CloudWire are documented here. Format follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.2.6] - 2026-03-20
+
+### Added
+- GitHub issue templates (bug report and feature request)
+- Pull request template with lint checklist
+- Terraform import usage documentation in USAGE.md (drag-and-drop workflow, file limits, supported extensions)
+- Generic fallback footnote to IAM permissions table in USAGE.md
+- Changelog and Documentation URLs to `pyproject.toml` for PyPI package page
+- Middleware stack documentation in ARCHITECTURE.md (RequestBodyLimitMiddleware, SecurityHeadersMiddleware)
+- `bootstrapLoading` and `MAX_SCAN_MS` auto-abandon documented in ARCHITECTURE.md polling section
+
+### Fixed
+- "Four layout modes" corrected to "Three layout modes" in README.md and FEATURES.md
+- Removed nonexistent "Force refresh" button reference from USAGE.md caching section
+- Removed placeholder screenshot note from README.md
+- CONTRIBUTING.md now documents ruff linter requirement and includes `make lint` in PR checklist
+
 ## [0.2.5] - 2026-03-17
 
 ### Added
