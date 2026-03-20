@@ -138,6 +138,7 @@ For a tighter policy, here are the core permissions used per service:
 | ElastiCache | `elasticache:DescribeCacheClusters` |
 | Glue | `glue:ListJobs`, `glue:GetCrawlers`, `glue:GetTriggers` |
 | AppSync | `appsync:ListGraphqlApis` |
+| Tag-based scanning | `tag:GetTagKeys`, `tag:GetTagValues`, `tag:GetResources` |
 | Generic fallback* | `tag:GetResources` |
 | All scans | `sts:GetCallerIdentity` (to resolve account ID) |
 
