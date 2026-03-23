@@ -155,7 +155,7 @@ jobs:
       # --- Publish ---
 
       - name: Publish to PyPI
-        uses: pypa/gh-action-pypi-publish@76f52bc884231f62b3c180f35e7b25798266585e # release/v1
+        uses: pypa/gh-action-pypi-publish@ec4db0b4ddc65acdf4bff5fa45ac92d78b56bdf0 # v1.9.0
 
       - name: Create GitHub Release
         env:
