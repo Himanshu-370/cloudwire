@@ -93,6 +93,22 @@ frontend/                       # React + Vite source (compiled into cloudwire/s
 - [ ] Keep PRs focused -- one feature or fix per PR
 - [ ] Update `CHANGELOG.md` if your change is user-facing
 
+## Releasing
+
+Releases are automated. You don't need to bump versions or create tags manually.
+
+To trigger a release, add one of these labels to your PR **before merging**:
+
+| Label | Effect |
+|-------|--------|
+| `release` | Patch bump (`0.2.6` → `0.2.7`) |
+| `release:minor` | Minor bump (`0.2.6` → `0.3.0`) |
+| `release:major` | Major bump (`0.2.6` → `1.0.0`) |
+
+No label = no release. The merge happens normally.
+
+On merge, GitHub Actions auto-bumps the version, tags, publishes to PyPI, and creates a GitHub Release. See [docs/RELEASING.md](docs/RELEASING.md) for the full guide.
+
 ## Code style
 
 - **Python:** standard library imports first, then third-party, then local. Run `make lint` before opening a PR — ruff is configured in `pyproject.toml` (line-length 120, E/F/I/UP rules).

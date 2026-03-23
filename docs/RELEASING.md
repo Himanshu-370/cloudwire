@@ -6,13 +6,19 @@ How to build, test, and publish a new version of cloudwire to PyPI.
 
 ## Overview
 
-The release pipeline works like this:
+Releases are fully automated. When you merge a PR with a `release` label, GitHub Actions will:
+
+1. Bump the version in `pyproject.toml` and `cloudwire/__init__.py`
+2. Commit the version bump and create a git tag
+3. Build the frontend and Python wheel
+4. Publish to PyPI via trusted publishing
+5. Create a GitHub Release with build artifacts
 
 ```
-code changes → bump version → git tag → GitHub Actions → PyPI
+merge PR (with release label) → auto version bump → git tag → build → PyPI + GitHub Release
 ```
 
-GitHub Actions handles the build (frontend + wheel) and the upload automatically when you push a version tag. You never need to run `twine` locally unless you're doing a manual release.
+No manual version bumping, tagging, or publishing required.
 
 ---
 
@@ -40,16 +46,111 @@ cloudwire uses OIDC trusted publishing — no API tokens to store or rotate.
 
 That's all — no secrets to add. The OIDC handshake between GitHub Actions and PyPI handles authentication.
 
+### 3. Enable workflow write permissions
+
+1. Go to **Settings → Actions → General**
+2. Under **Workflow permissions**, select **Read and write permissions**
+3. Check **Allow GitHub Actions to create and approve pull requests**
+4. Save
+
+### 4. Create release labels
+
+Go to your repo → **Issues → Labels** and create:
+
+| Label | Description | Suggested color |
+|-------|-------------|-----------------|
+| `release` | Trigger a patch release on merge | `#0E8A16` (green) |
+| `release:minor` | Trigger a minor release on merge | `#1D76DB` (blue) |
+| `release:major` | Trigger a major release on merge | `#D93F0B` (red) |
+
 ---
 
-## Standard release process
+## Automated release (recommended)
 
-### Quick release (one command)
+This is the standard way to release. No manual version bumps, no tagging, no publishing commands.
 
-If you just want to bump, build, and publish in one step:
+### Step 1 — Create your PR
+
+Work on a feature branch and open a PR against `main` as usual.
+
+### Step 2 — Add a release label
+
+Before merging, add one of these labels to the PR:
+
+| Label | Effect | Example |
+|-------|--------|---------|
+| `release` or `release:patch` | Bump patch version | `0.2.6` → `0.2.7` |
+| `release:minor` | Bump minor, reset patch | `0.2.6` → `0.3.0` |
+| `release:major` | Bump major, reset minor + patch | `0.2.6` → `1.0.0` |
+
+**No label = no release.** The PR merges normally without triggering any release pipeline.
+
+### Step 3 — Merge the PR
+
+Merge as usual (squash, merge commit, or rebase — all work). On merge, two workflows run in sequence:
+
+**`release.yml`** (runs first):
+1. Reads the current version from `pyproject.toml`
+2. Bumps it based on the label
+3. Updates `pyproject.toml` and `cloudwire/__init__.py`
+4. Commits: `chore: bump version 0.2.6 → 0.2.7 [skip ci]`
+5. Creates git tag `v0.2.7`
+6. Pushes the commit and tag to `main`
+
+**`publish.yml`** (triggered by the new tag):
+1. Builds the React frontend (`npm ci && npm run build`)
+2. Builds the Python wheel (`python -m build`)
+3. Verifies static assets are bundled in the wheel
+4. Publishes to PyPI via trusted publishing
+5. Creates a GitHub Release with auto-generated notes and dist artifacts
+
+### Step 4 — Verify
 
 ```bash
-make release V=0.2.0
+pip install --upgrade cloudwire
+cloudwire --version
+```
+
+The GitHub Release will appear at: `https://github.com/Himanshu-370/cloudwire/releases`
+
+### Example walkthrough
+
+Here's a concrete example of releasing a new scanner feature:
+
+```bash
+# 1. Work on your feature branch
+git checkout -b feat/elasticache-scanner
+# ... make changes ...
+git add -A && git commit -m "feat: add ElastiCache scanner"
+git push -u origin feat/elasticache-scanner
+
+# 2. Open a PR on GitHub
+gh pr create --title "feat: add ElastiCache scanner" --body "Adds dedicated ElastiCache scanner"
+
+# 3. Add the release label (this is a new feature, so use minor)
+gh pr edit --add-label "release:minor"
+
+# 4. Merge the PR (via GitHub UI or CLI)
+gh pr merge --squash
+
+# That's it! GitHub Actions will:
+#   - Bump 0.2.6 → 0.3.0
+#   - Tag v0.3.0
+#   - Publish to PyPI
+#   - Create GitHub Release
+#
+# If this was a bug fix, you'd use the "release" label instead,
+# and the version would bump 0.2.6 → 0.2.7
+```
+
+---
+
+## Manual release (quick command)
+
+If you need to bypass the automated flow (e.g. CI is down), you can release manually:
+
+```bash
+make release V=0.2.7
 ```
 
 This will:
@@ -63,73 +164,12 @@ After the upload, tag and push:
 
 ```bash
 git add cloudwire/__init__.py pyproject.toml
-git commit -m "chore: bump version to 0.2.0"
-git tag v0.2.0
-git push && git push origin v0.2.0
+git commit -m "chore: bump version to 0.2.7"
+git tag v0.2.7
+git push && git push origin v0.2.7
 ```
 
 > **Note:** `make release` requires `twine` and `build` (`pip install twine build`) and PyPI credentials configured via `~/.pypirc` or `TWINE_USERNAME`/`TWINE_PASSWORD` env vars.
-
-### Step-by-step release
-
-Use this if you prefer more control over each step.
-
-#### Step 1 — Make your changes
-
-Work on a branch or directly on `main`. All your code changes, bug fixes, and new features go here.
-
-#### Step 2 — Bump the version
-
-Version must be updated in exactly two places:
-
-**`cloudwire/__init__.py`**
-```python
-__version__ = "0.2.0"   # was "0.1.2"
-```
-
-**`pyproject.toml`**
-```toml
-version = "0.2.0"   # was "0.1.2"
-```
-
-Both must match. The wheel filename, `cloudwire --version`, and the PyPI listing all read from these.
-
-#### Step 3 — Commit the version bump
-
-```bash
-git add cloudwire/__init__.py pyproject.toml
-git commit -m "chore: bump version to 0.2.0"
-git push
-```
-
-#### Step 4 — Tag and push
-
-```bash
-git tag v0.2.0
-git push origin v0.2.0
-```
-
-The tag must start with `v` followed by the version number (e.g. `v0.2.0`, `v1.0.0-rc1`).
-
-### Step 5 — Watch the pipeline
-
-Go to your repo → **Actions**. The `Publish to PyPI` workflow will:
-
-1. Check out the code
-2. Install Node.js and run `npm ci && npm run build` (builds the React frontend)
-3. Install Python and run `python -m build` (builds the wheel)
-4. Verify that `static/index.html` and JS assets are bundled inside the wheel
-5. Publish to PyPI via trusted publishing
-
-The whole pipeline takes about 2–3 minutes. When it's green, the new version is live on PyPI.
-
-### Step 6 — Verify the release
-
-```bash
-pip install --upgrade cloudwire
-cloudwire --version
-# cloudwire, version 0.2.0
-```
 
 ---
 
@@ -267,6 +307,18 @@ make dev              # start backend (:8000) and frontend dev server (:5173)
 ---
 
 ## Checklist before every release
+
+### Automated release (PR with label)
+
+- [ ] `make build` completes without errors locally
+- [ ] Did a quick scan against a real or test AWS account and the graph renders
+- [ ] Updated `CHANGELOG.md` with user-facing changes
+- [ ] PR has the correct release label (`release`, `release:minor`, or `release:major`)
+- [ ] PR is merged to `main`
+- [ ] GitHub Actions pipelines (`release.yml` then `publish.yml`) are green
+- [ ] `pip install --upgrade cloudwire` on a clean machine shows the new version
+
+### Manual release
 
 - [ ] Version bumped in `cloudwire/__init__.py` and `pyproject.toml`
 - [ ] Both version strings match the tag you're about to push
