@@ -57,7 +57,7 @@ jobs:
         run: npm run build
 
       - name: Install build tools
-        run: pip install --upgrade build setuptools wheel
+        run: pip install --upgrade build "setuptools>=68,<77" wheel
 
       - name: Build Python package
         run: python -m build
