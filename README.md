@@ -1,141 +1,266 @@
 # CloudWire
 
-AWS infrastructure visualization tool — scan your account and explore service dependencies as an interactive graph, directly in your browser.
-
-[![PyPI version](https://img.shields.io/pypi/v/cloudwire.svg)](https://pypi.org/project/cloudwire/)
-[![Python versions](https://img.shields.io/pypi/pyversions/cloudwire.svg)](https://pypi.org/project/cloudwire/)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-[![Build](https://github.com/Himanshu-370/cloudwire/actions/workflows/publish.yml/badge.svg)](https://github.com/Himanshu-370/cloudwire/actions/workflows/publish.yml)
-
-If CloudWire saves you time, a [GitHub star](https://github.com/Himanshu-370/cloudwire) helps others find it.
-
-No data leaves your system. AWS credentials never leave your terminal. The graph is built locally using your existing credential chain (`~/.aws/credentials`, `aws sso login`, `saml2aws`, `aws-vault` — all work out of the box).
+<p align="center">
+  <a href="https://pypi.org/project/cloudwire/"><img src="https://img.shields.io/pypi/v/cloudwire?color=blue&label=PyPI" alt="PyPI version"></a>
+  <a href="https://pypi.org/project/cloudwire/"><img src="https://img.shields.io/pypi/pyversions/cloudwire" alt="Python versions"></a>
+  <a href="https://pypi.org/project/cloudwire/"><img src="https://img.shields.io/pypi/dm/cloudwire?color=green" alt="PyPI downloads"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/github/license/Himanshu-370/cloudwire" alt="MIT License"></a>
+</p>
 
 <p align="center">
-  <img src="docs/cloudgraph.svg" alt="CloudWire — AWS infrastructure graph visualization" width="100%">
+  <strong>Scan and visualize your AWS infrastructure as an interactive dependency graph — in your browser, in seconds.</strong>
+</p>
+
+<p align="center">
+  No external services. No data leaves your machine. Read-only AWS access.
 </p>
 
 ---
 
-## Quick start
+CloudWire connects to your AWS account, discovers resources across the services you choose, and draws them as a live interactive graph. Each node is an AWS resource. Each edge is a real relationship — an event trigger, a queue subscription, an API integration, a database connection.
+
+The result is a map of how your infrastructure is actually wired together.
+
+![CloudWire graph visualization](docs/cloudgraph.svg)
+
+---
+
+## Features
+
+- **21 built-in AWS service scanners** — Lambda, API Gateway, SQS, SNS, EventBridge, DynamoDB, EC2, ECS, S3, RDS, Step Functions, Kinesis, IAM, Cognito, CloudFront, Route 53, ElastiCache, Redshift, Glue, AppSync, VPC
+- **Tag-based scanning** — discover resources by AWS tags instead of by service
+- **Terraform import** — drag and drop `.tfstate` or `.tf` files to visualize infrastructure without AWS credentials
+- **VPC network topology** — CloudMapper-style subnet/AZ/SG diagrams with internet exposure detection
+- **Three layout modes** — Circular, Flow (left-to-right data flow), and Swimlane (grouped by role)
+- **Blast radius highlighting** — see exactly what breaks if a resource goes down
+- **Quick and Deep scan modes** — fast list-only or full describe enrichment
+- **Real-time progress** — graph builds live as each service scan completes
+- **100% local** — runs on `localhost`, credentials never leave your terminal
+
+---
+
+## Installation
 
 ```bash
-# Install
 pip install cloudwire
+```
 
-# Launch (opens http://localhost:8080 automatically)
+**Recommended** — use `pipx` to keep it isolated from your project environments:
+
+```bash
+pipx install cloudwire
+```
+
+**Requirements:** Python 3.9+, AWS credentials configured
+
+---
+
+## Quick Start
+
+```bash
 cloudwire
-
-# Target a specific profile and region
-cloudwire --profile staging --region us-east-1
 ```
 
-> **Tip:** Prefer isolated installs? Use `pipx install cloudwire` instead.
+The server starts on `http://localhost:8080` and your browser opens automatically.
 
-> **Requirements:** Python 3.9+ and valid AWS credentials configured locally.
+1. Select the AWS services you want to scan from the dropdown
+2. Choose your AWS region
+3. Click **Scan** and watch the graph build in real time
 
-On first load, select the services you want to scan from the top bar and click **Scan**. The graph populates in real time as resources are discovered.
+### CLI options
 
----
-
-## Why CloudWire?
-
-Tools like [Rover](https://github.com/im2nguyen/rover), [Terravision](https://github.com/patrickchugh/terravision), and [Inframap](https://github.com/cycloidio/inframap) visualize infrastructure from Terraform state files. CloudWire takes a different approach:
-
-- **Live scanning, not plan-file parsing** — CloudWire queries your AWS account directly via boto3, discovering resources and relationships in real time. No Terraform required. You can also import `.tfstate`/`.tf` files if you prefer.
-- **Relationship inference** — edges aren't just "resource A references resource B." CloudWire resolves IAM policies, environment variable references, event triggers, and VPC containment to surface connections that don't appear in any state file.
-- **Runs entirely local** — single Python process, no database, no cloud backend, no signup. Your AWS credentials never leave your machine.
-
----
-
-## Key features
-
-- **Interactive graph** — dark-themed canvas with animated data flow, pan/zoom, and SVG export
-- **24 AWS services** with dedicated scanners, icons, colors, and relationship inference
-- **Real edges** — API integrations, event triggers, IAM policy inference, env var references, VPC containment
-- **VPC topology** — subnets, security groups, IGWs, NAT GWs, route tables with AZ grouping and internet exposure detection
-- **Tag-based scanning** — discover and scan resources by AWS tags
-- **Terraform import** — upload `.tfstate` or `.tf` files to visualize without AWS credentials
-- **Analysis tools** — blast radius, shortest path, architecture summary, pattern detection
-- **Three layout modes** — Circular, Flow, Swimlane — switchable from the toolbar
-- **Permission-aware** — missing IAM policies surfaced clearly, never blocks the scan
-
-
----
-
-## Required IAM permissions
-
-CloudWire is **read-only**. All operations use `List*`, `Describe*`, and `Get*` API actions only — no write access required.
-
-A minimal IAM policy is documented in [docs/USAGE.md](docs/USAGE.md). The recommended starting point:
-
-```
-arn:aws:iam::aws:policy/ReadOnlyAccess
+```bash
+cloudwire --profile production          # use a named AWS profile
+cloudwire --region eu-west-1            # set the default region
+cloudwire --port 9000                   # use a different port
+cloudwire --no-browser                  # start server without opening browser
 ```
 
-If you use a more restrictive policy, CloudWire will scan what it can and clearly report which services were denied — it never fails silently.
+Full CLI reference: [`docs/USAGE.md`](docs/USAGE.md#cli-reference)
 
 ---
 
-## Supported services
+## AWS Credentials
 
-| Service | Scanner |
-|---------|---------|
-| API Gateway | Dedicated — REST + HTTP APIs, multi-service integrations, Cognito authorizers |
-| Lambda | Dedicated — functions, event source mappings, env var references, IAM policy inference |
-| SQS | Dedicated — queues, attributes, dead letter queue edges |
-| SNS | Dedicated — topics and subscriptions |
-| EventBridge | Dedicated — rules and targets |
-| DynamoDB | Dedicated — tables, streams, global table replicas |
-| EC2 | Dedicated — instances, VPC, subnet, security group, instance profile edges |
-| ECS | Dedicated — clusters, services, task definitions, load balancer edges |
-| S3 | Dedicated — buckets and Lambda notification edges |
-| RDS | Dedicated — DB instances and clusters |
-| Step Functions | Dedicated |
-| Kinesis | Dedicated |
-| IAM | Dedicated — roles with full policy resolution |
-| Cognito | Dedicated — user pools |
-| CloudFront | Dedicated — distributions, S3/API GW/ELB origins, Lambda@Edge |
-| Route 53 | Dedicated — hosted zones, record sets, alias target edges |
-| ElastiCache | Dedicated — cache clusters |
-| Redshift | Dedicated — clusters |
-| Glue | Dedicated — jobs, crawlers, triggers |
-| AppSync | Dedicated — GraphQL APIs |
-| Secrets Manager | Dedicated |
-| KMS | Dedicated |
-| VPC Network | Dedicated — VPCs, subnets, security groups, IGWs, NAT GWs, route tables |
-| ELB | Discovered via CloudFront, Route 53, ECS edges |
-| Everything else | Generic (tagged resources only) |
+CloudWire reads credentials from the standard AWS credential chain — any of these work:
+
+```bash
+# AWS SSO
+aws sso login --profile my-profile && cloudwire --profile my-profile
+
+# saml2aws
+saml2aws login && cloudwire
+
+# aws-vault
+aws-vault exec my-profile -- cloudwire
+
+# Standard profile
+aws configure --profile staging && cloudwire --profile staging
+
+# Environment variables
+export AWS_ACCESS_KEY_ID=... AWS_SECRET_ACCESS_KEY=... && cloudwire
+```
 
 ---
 
-## How it works
+## Required AWS Permissions
 
-CloudWire is a Python CLI (FastAPI backend) that serves a pre-compiled React frontend. The backend scans AWS via boto3 and builds a [networkx](https://networkx.org/) graph. The frontend visualizes it using a custom SVG canvas engine. No database, no cloud dependency — everything runs in a single process on your machine.
+CloudWire needs **read-only** access. The quickest way is to attach the `ReadOnlyAccess` AWS managed policy. For a least-privilege setup, grant only the permissions for the services you scan:
+
+| Service | Permissions |
+|---------|-------------|
+| All scans | `sts:GetCallerIdentity` |
+| Tag-based scanning | `tag:GetResources` |
+| Lambda | `lambda:ListFunctions`, `lambda:ListEventSourceMappings` |
+| API Gateway | `apigateway:GET` |
+| SQS | `sqs:ListQueues`, `sqs:GetQueueAttributes` |
+| SNS | `sns:ListTopics`, `sns:ListSubscriptions` |
+| EventBridge | `events:ListRules`, `events:ListTargetsByRule` |
+| DynamoDB | `dynamodb:ListTables`, `dynamodb:DescribeTable` |
+| EC2 | `ec2:DescribeInstances` |
+| VPC | `ec2:DescribeVpcs`, `ec2:DescribeSubnets`, `ec2:DescribeSecurityGroups`, `ec2:DescribeInternetGateways`, `ec2:DescribeNatGateways`, `ec2:DescribeRouteTables` |
+| ECS | `ecs:ListClusters`, `ecs:ListServices`, `ecs:DescribeServices`, `ecs:DescribeTaskDefinition` |
+| S3 | `s3:ListAllMyBuckets`, `s3:GetBucketNotification` |
+| RDS | `rds:DescribeDBInstances`, `rds:DescribeDBClusters` |
+| Step Functions | `states:ListStateMachines` |
+| Kinesis | `kinesis:ListStreams` |
+| IAM | `iam:ListRoles`, `iam:ListRolePolicies`, `iam:GetRolePolicy`, `iam:ListAttachedRolePolicies`, `iam:GetPolicy`, `iam:GetPolicyVersion` |
+| Cognito | `cognito-idp:ListUserPools` |
+| CloudFront | `cloudfront:ListDistributions`, `cloudfront:GetDistribution` |
+| Route 53 | `route53:ListHostedZones`, `route53:ListResourceRecordSets` |
+| Redshift | `redshift:DescribeClusters` |
+| ElastiCache | `elasticache:DescribeCacheClusters` |
+| Glue | `glue:ListJobs`, `glue:GetCrawlers`, `glue:GetTriggers` |
+| AppSync | `appsync:ListGraphqlApis` |
+
+> Services not in this list (EMR, ELB, KMS, Secrets Manager, etc.) are scanned via the Resource Groups Tagging API (`tag:GetResources`) and only discover tagged resources.
+
+<details>
+<summary>Minimal IAM policy JSON</summary>
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Action": [
+        "sts:GetCallerIdentity",
+        "tag:GetResources",
+        "lambda:ListFunctions",
+        "lambda:ListEventSourceMappings",
+        "apigateway:GET",
+        "sqs:ListQueues",
+        "sqs:GetQueueAttributes",
+        "sns:ListTopics",
+        "sns:ListSubscriptions",
+        "events:ListRules",
+        "events:ListTargetsByRule",
+        "dynamodb:ListTables",
+        "dynamodb:DescribeTable",
+        "ec2:DescribeInstances",
+        "ec2:DescribeVpcs",
+        "ec2:DescribeSubnets",
+        "ec2:DescribeSecurityGroups",
+        "ec2:DescribeInternetGateways",
+        "ec2:DescribeNatGateways",
+        "ec2:DescribeRouteTables",
+        "ecs:ListClusters",
+        "ecs:ListServices",
+        "ecs:DescribeServices",
+        "ecs:DescribeTaskDefinition",
+        "s3:ListAllMyBuckets",
+        "s3:GetBucketNotification",
+        "rds:DescribeDBInstances",
+        "rds:DescribeDBClusters",
+        "states:ListStateMachines",
+        "kinesis:ListStreams",
+        "iam:ListRoles",
+        "iam:ListRolePolicies",
+        "iam:GetRolePolicy",
+        "iam:ListAttachedRolePolicies",
+        "iam:GetPolicy",
+        "iam:GetPolicyVersion",
+        "cognito-idp:ListUserPools",
+        "cloudfront:ListDistributions",
+        "cloudfront:GetDistribution",
+        "route53:ListHostedZones",
+        "route53:ListResourceRecordSets",
+        "redshift:DescribeClusters",
+        "elasticache:DescribeCacheClusters",
+        "glue:ListJobs",
+        "glue:GetCrawlers",
+        "glue:GetTriggers",
+        "appsync:ListGraphqlApis"
+      ],
+      "Resource": "*"
+    }
+  ]
+}
+```
+
+</details>
 
 ---
 
-## Contributing
+## Supported Services
 
-We welcome contributions! See [CONTRIBUTING.md](CONTRIBUTING.md) for setup instructions, project structure, code style, and PR guidelines.
+| Service | Relationships discovered |
+|---------|-------------------------|
+| Lambda | → DynamoDB, SQS, S3, Kinesis, ECS via env vars; ← event source mappings |
+| API Gateway | → Lambda, Step Functions, SQS, SNS, Kinesis; ← Cognito authorizers |
+| SQS | ← Lambda triggers, ← SNS subscriptions, → dead letter queues |
+| SNS | → SQS subscriptions, → Lambda subscriptions |
+| EventBridge | → Lambda, SQS, Step Functions, and any ARN target |
+| DynamoDB | ← Lambda streams, → DynamoDB Streams, → global table replicas |
+| EC2 | → VPC, Subnet, Security Group, IAM Instance Profile |
+| ECS | → task definitions, → load balancers, → service roles |
+| S3 | → Lambda notifications; ← CloudFront origins, ← Glue crawlers |
+| RDS | → VPC, Subnet, Security Group |
+| Step Functions | ← EventBridge targets, ← API Gateway integrations |
+| Kinesis | ← Lambda event sources, ← API Gateway integrations |
+| IAM | → Lambda (role-to-function edges), policy-based service inference |
+| Cognito | → API Gateway authorizer edges |
+| CloudFront | → S3, API Gateway, ALB/ELB, Lambda@Edge |
+| Route 53 | → API Gateway, S3, ELB alias targets |
+| ElastiCache | ← Lambda env var references |
+| Redshift | → VPC, Subnet, Security Group |
+| Glue | → S3/DynamoDB crawler targets, → trigger actions |
+| AppSync | — |
+| VPC Network | Subnets, SGs, IGWs, NAT GWs, route tables + internet exposure detection |
+| Everything else | Tagged resources via Resource Groups Tagging API |
+
+---
+
+## Local Development
 
 ```bash
 git clone https://github.com/Himanshu-370/cloudwire
 cd cloudwire
-make dev   # starts backend + frontend in parallel
+
+# Install Python package in editable mode + start backend + frontend
+make install-dev
+make dev
 ```
+
+This starts the FastAPI backend on `http://localhost:8000` and the Vite frontend on `http://localhost:5173` with hot reload.
+
+See [`CONTRIBUTING.md`](CONTRIBUTING.md) for the full dev guide, project structure, and how to add a new service scanner.
 
 ---
 
-## Links
+## Documentation
 
-- [Architecture deep dive](docs/ARCHITECTURE.md)
-- [Full feature list](docs/FEATURES.md)
-- [Usage & setup guide](docs/USAGE.md)
-- [Changelog](CHANGELOG.md)
-- [Release guide for maintainers](docs/RELEASING.md)
-- [Security policy](SECURITY.md)
+| Doc | What's in it |
+|-----|-------------|
+| [`docs/USAGE.md`](docs/USAGE.md) | Full installation, CLI reference, UI guide, troubleshooting |
+| [`docs/FEATURES.md`](docs/FEATURES.md) | Complete feature list with detail on every capability |
+| [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) | Backend and frontend architecture overview |
+| [`CONTRIBUTING.md`](CONTRIBUTING.md) | Dev setup, project structure, adding a new scanner, PR process |
+| [`CHANGELOG.md`](CHANGELOG.md) | Version history |
+
+---
 
 ## License
 
-MIT — see [LICENSE](LICENSE).
+MIT — see [`LICENSE`](LICENSE).
