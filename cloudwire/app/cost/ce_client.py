@@ -21,30 +21,62 @@ _last_call_time = 0.0
 
 # CE service name -> CloudWire canonical service name
 CE_SERVICE_MAP: Dict[str, str] = {
+    # Compute
     "Amazon Elastic Compute Cloud - Compute": "ec2",
     "Amazon EC2": "ec2",
     "EC2 - Other": "ec2",
+    "AWS Lambda": "lambda",
+    "Amazon Elastic Container Service": "ecs",
+    "Amazon Elastic Container Service for Kubernetes": "eks",
+    "Amazon Elastic Kubernetes Service": "eks",
+    "AWS Step Functions": "stepfunctions",
+    "AWS Glue": "glue",
+    "Amazon EMR": "emr",
+    "AWS Elastic Beanstalk": "elasticbeanstalk",
+    "AWS Batch": "batch",
+    # Database & Storage
     "Amazon Simple Storage Service": "s3",
     "Amazon Relational Database Service": "rds",
     "Amazon DynamoDB": "dynamodb",
     "Amazon ElastiCache": "elasticache",
     "Amazon Redshift": "redshift",
-    "AWS Lambda": "lambda",
+    "Amazon OpenSearch Service": "opensearch",
+    "Amazon Elastic File System": "efs",
+    "Amazon ECR": "ecr",
+    "Amazon EC2 Container Registry (ECR)": "ecr",
+    # Queues & Streams
     "Amazon Simple Queue Service": "sqs",
     "Amazon Simple Notification Service": "sns",
-    "Amazon API Gateway": "apigateway",
-    "Amazon CloudFront": "cloudfront",
-    "Amazon Elastic Container Service": "ecs",
-    "AWS Step Functions": "stepfunctions",
     "Amazon Kinesis": "kinesis",
-    "Amazon Virtual Private Cloud": "vpc",
-    "AWS Glue": "glue",
+    "Amazon Managed Streaming for Apache Kafka": "kafka",
+    "Amazon Kinesis Firehose": "firehose",
+    # API & Integration
+    "Amazon API Gateway": "apigateway",
+    "AWS AppSync": "appsync",
     "Amazon EventBridge": "eventbridge",
-    "Amazon OpenSearch Service": "opensearch",
-    "Amazon Cognito": "cognito",
-    "AWS Key Management Service": "kms",
+    "Amazon MQ": "mq",
+    # Networking
+    "Amazon Virtual Private Cloud": "vpc",
+    "Amazon CloudFront": "cloudfront",
     "Amazon Route 53": "route53",
+    "Elastic Load Balancing": "elb",
+    "AWS Certificate Manager": "acm",
+    # Security & Identity
+    "Amazon Cognito": "cognito",
+    "AWS Secrets Manager": "secretsmanager",
+    "AWS Key Management Service": "kms",
+    "AWS WAF": "wafv2",
+    "Amazon GuardDuty": "guardduty",
+    # Monitoring & Management
     "Amazon CloudWatch": "cloudwatch",
+    "AWS CloudTrail": "cloudtrail",
+    "AWS CloudFormation": "cloudformation",
+    # Analytics & ML
+    "Amazon Athena": "athena",
+    "Amazon SageMaker": "sagemaker",
+    # Developer Tools
+    "AWS CodePipeline": "codepipeline",
+    "AWS CodeBuild": "codebuild",
 }
 
 # Services that support resource-level cost breakdown via GetCostAndUsageWithResources

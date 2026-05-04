@@ -78,9 +78,14 @@ def enrich_graph_with_costs(
             )
         return result
 
-    # Build mapper from current graph nodes
+    # Build mapper from current graph nodes — include all scanned services,
+    # not just RESOURCE_LEVEL_SERVICES, so annotation banners can find nodes
+    all_services = set(service_result.service_totals.keys()) | set(RESOURCE_LEVEL_SERVICES)
+    scanned = graph_store.metadata.get("scanned_services", [])
+    if scanned:
+        all_services.update(scanned)
     nodes_by_service: Dict[str, List[Tuple[str, Dict[str, Any]]]] = {}
-    for service in RESOURCE_LEVEL_SERVICES:
+    for service in all_services:
         nodes_by_service[service] = graph_store.iter_nodes_by_service(service)
 
     mapper = CostMapper(nodes_by_service)

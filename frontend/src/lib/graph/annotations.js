@@ -5,28 +5,36 @@ export function computeCostAnnotations(positionedNodes, costServiceTotals) {
   if (!costServiceTotals || typeof costServiceTotals !== "object") return [];
 
   const annotations = [];
-  const nodesByService = new Map();
 
+  // Group all nodes by service (regardless of whether they have per-resource costs)
+  const allNodesByService = new Map();
   positionedNodes.forEach((n) => {
     if (!n.position || !n.service) return;
-    // Only show service-level annotations for services that don't have per-resource costs
-    if (n.cost_usd != null) return; // This node has resource-level cost
-    if (!nodesByService.has(n.service)) nodesByService.set(n.service, []);
-    nodesByService.get(n.service).push(n);
+    if (!allNodesByService.has(n.service)) allNodesByService.set(n.service, []);
+    allNodesByService.get(n.service).push(n);
   });
 
-  // Check which services have ONLY service-level costs (no resource-level nodes)
-  const servicesWithResourceCosts = new Set();
+  // Sum up per-resource costs already assigned to nodes, per service
+  const resourceCostByService = new Map();
   positionedNodes.forEach((n) => {
-    if (n.cost_usd != null && n.service) servicesWithResourceCosts.add(n.service);
+    if (n.cost_usd != null && n.service) {
+      resourceCostByService.set(
+        n.service,
+        (resourceCostByService.get(n.service) || 0) + n.cost_usd,
+      );
+    }
   });
 
   for (const [service, total] of Object.entries(costServiceTotals)) {
     if (total <= 0) continue;
-    if (servicesWithResourceCosts.has(service)) continue; // Has per-resource costs, skip annotation
 
-    const serviceNodes = nodesByService.get(service);
+    const serviceNodes = allNodesByService.get(service);
     if (!serviceNodes || serviceNodes.length === 0) continue;
+
+    // If some nodes have per-resource costs, show only the unmatched remainder
+    const matchedCost = resourceCostByService.get(service) || 0;
+    const remainder = total - matchedCost;
+    if (remainder <= 0.01) continue; // All costs accounted for by per-resource matches
 
     let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
     serviceNodes.forEach((n) => {
@@ -37,14 +45,20 @@ export function computeCostAnnotations(positionedNodes, costServiceTotals) {
     });
 
     const pad = 70;
-    const formatted = total < 100
-      ? `$${total.toFixed(2)}`
-      : `$${Math.round(total).toLocaleString()}`;
+    const isPartial = matchedCost > 0;
+    const displayAmount = isPartial ? remainder : total;
+    const formatted = displayAmount < 100
+      ? `$${displayAmount.toFixed(2)}`
+      : `$${Math.round(displayAmount).toLocaleString()}`;
+
+    const subtitle = isPartial
+      ? `${serviceNodes.length} resource${serviceNodes.length === 1 ? "" : "s"} (unmatched service costs)`
+      : `${serviceNodes.length} resource${serviceNodes.length === 1 ? "" : "s"} (service-level total)`;
 
     annotations.push({
       id: `cost-svc:${service}`,
       title: `${service.toUpperCase()}: ${formatted} MTD`,
-      subtitle: `${serviceNodes.length} resource${serviceNodes.length === 1 ? "" : "s"} (service-level total)`,
+      subtitle,
       minX: minX - pad, maxX: maxX + pad, minY: minY - pad, maxY: maxY + pad,
       tone: "cost-service", rx: 10,
     });
